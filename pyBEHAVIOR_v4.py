@@ -114,8 +114,13 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_id = 2
         self.active_dmts_test_sound_time_s = None
         self.active_dmts_response_start_s = None
+        self.active_dmts_response_end_s = None
+        self.active_dmts_reward_start_s = None
+        self.active_dmts_response_evaluated = False
+        self.active_dmts_response_met = False
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
+        self.active_dmts_scored = False
         self.sim_next_pulse_start_s = 0.0
         self.sim_pulse_end_s = -1.0
         self.results_window = None
@@ -625,8 +630,13 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_id = 2
         self.active_dmts_test_sound_time_s = None
         self.active_dmts_response_start_s = None
+        self.active_dmts_response_end_s = None
+        self.active_dmts_reward_start_s = None
+        self.active_dmts_response_evaluated = False
+        self.active_dmts_response_met = False
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
+        self.active_dmts_scored = False
         self.sim_next_pulse_start_s = 0.0
         self.sim_pulse_end_s = -1.0
         self.current_trial_var.set("0")
@@ -775,7 +785,10 @@ class BehaviorAcquisitionApp(tk.Tk):
                 continue
 
             if self.active_trial_index is not None and self.active_trial_end_s is not None and sample_time_s >= self.active_trial_end_s:
-                self.finish_active_trial(self.active_trial_end_s)
+                if self.is_dmts_task():
+                    self.finish_active_dmts_timeline(self.active_trial_end_s)
+                else:
+                    self.finish_active_trial(self.active_trial_end_s)
 
             is_high = value >= threshold
             crossed_up = is_high and not self.irfork_was_high
@@ -1054,10 +1067,14 @@ class BehaviorAcquisitionApp(tk.Tk):
         sound_duration_s = max(0.0, self.parse_float(self.sound_duration_s, 0))
         delay_s = max(0.0, self.parse_float(self.delay_s, 0))
         response_window_s = max(0.0, self.parse_float(self.response_window_s, 2))
+        reward_delay_s = max(0.0, self.parse_float(self.reward_delay_s, 0))
+        reward_duration_s = max(0.0, self.parse_float(self.pulse_ms, 50) / 1000.0)
         self.active_trial_index = self.trial_index
         self.active_trial_start_s = trigger_time_s
         self.active_dmts_response_start_s = trigger_time_s + sound_duration_s + delay_s + sound_duration_s
-        self.active_trial_end_s = self.active_dmts_response_start_s + response_window_s
+        self.active_dmts_response_end_s = self.active_dmts_response_start_s + response_window_s
+        self.active_dmts_reward_start_s = self.active_dmts_response_end_s + reward_delay_s
+        self.active_trial_end_s = self.active_dmts_reward_start_s + reward_duration_s
         self.active_high_start_s = None
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
@@ -1067,8 +1084,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_sample_sound_id = max(1, self.parse_int(self.sample_sound_id, 1))
         self.active_dmts_test_sound_id = max(1, self.parse_int(self.test_sound_id, 2))
         self.active_dmts_test_sound_time_s = trigger_time_s + sound_duration_s + delay_s
+        self.active_dmts_response_evaluated = False
+        self.active_dmts_response_met = False
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
+        self.active_dmts_scored = False
         self.next_trial_allowed_time_s = trigger_time_s + iti_s
         self.start_trial_state_interval(trigger_time_s)
         if self.play_sound_on_crossing.get():
@@ -1130,6 +1150,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.evaluate_active_lever_trial(sample_time_s)
 
     def update_active_dmts_trial(self, sample_time_s, is_high, crossed_up, crossed_down):
+        if crossed_down and not self.is_lick_trigger() and not self.active_dmts_scored:
+            self.finish_active_dmts_miss(sample_time_s, "fork event ended")
+            return
+
         if self.active_dmts_test_sound_time_s is not None and not self.active_dmts_test_sound_played:
             if sample_time_s >= self.active_dmts_test_sound_time_s:
                 if self.play_sound_on_crossing.get():
@@ -1144,6 +1168,14 @@ class BehaviorAcquisitionApp(tk.Tk):
         if response_start_s is None or sample_time_s < response_start_s:
             return
 
+        response_end_s = self.active_dmts_response_end_s
+        if response_end_s is not None and sample_time_s >= response_end_s:
+            self.finish_active_dmts_response(response_end_s)
+            reward_start_s = self.active_dmts_reward_start_s
+            if reward_start_s is not None and sample_time_s >= reward_start_s:
+                self.finish_active_dmts_reward_period(reward_start_s)
+            return
+
         if not self.active_dmts_response_started:
             self.active_dmts_response_started = True
             if is_high and not self.is_lick_trigger():
@@ -1156,7 +1188,84 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.active_high_start_s = sample_time_s
         elif crossed_down:
             self.add_active_high_interval(sample_time_s)
-        self.evaluate_active_trial(sample_time_s)
+
+    def finish_active_dmts_response(self, response_end_s):
+        if self.active_dmts_response_evaluated:
+            return
+        row = self.get_active_trial_row()
+        if row is None:
+            self.active_dmts_response_evaluated = True
+            return
+        self.active_dmts_response_evaluated = True
+        if self.is_lick_trigger():
+            lick_count = self.active_lick_count
+            row["lick_count"] = lick_count
+            response_met = lick_count >= self.get_min_lick_count()
+            measure = float(lick_count)
+            log_measure = f"{lick_count} licks"
+        else:
+            if self.active_high_start_s is not None:
+                self.add_active_high_interval(response_end_s)
+            measure = self.active_crossing_total_s
+            row["crossing_duration_s"] = f"{measure:.6f}"
+            response_met = measure >= self.get_hit_threshold_s()
+            log_measure = f"{measure:.3f} s total IR crossing"
+        self.active_dmts_response_met = response_met
+        self.write_trial_log()
+        self.plot_queue.put(("log", f"DMTS trial {row['trial']} response window ended with {log_measure}. Criterion met={int(response_met)}."))
+
+    def finish_active_dmts_reward_period(self, reward_start_s):
+        if self.active_dmts_scored:
+            return
+        row = self.get_active_trial_row()
+        if row is None:
+            self.clear_active_trial()
+            return
+        if not self.active_dmts_response_evaluated:
+            self.finish_active_dmts_response(self.active_dmts_response_end_s or reward_start_s)
+        self.active_dmts_scored = True
+        same_sound = self.active_dmts_sample_sound_id == self.active_dmts_test_sound_id
+        hit = bool(same_sound and self.active_dmts_response_met)
+        row["HIT"] = int(hit)
+        row["MISS"] = int(not hit)
+        row["CR"] = 0
+        row["FA"] = 0
+        row["ResultType"] = "HIT" if hit else "MISS"
+        if hit:
+            measure = float(row.get("lick_count") or self.active_crossing_total_s)
+            self.maybe_send_go_reward(row, measure, start_s=reward_start_s)
+        self.write_trial_log()
+        self.plot_queue.put(("results", None))
+        self.plot_queue.put(("log", f"DMTS trial {row['trial']} reached reward period. Same sound={int(same_sound)}. Result={row['ResultType']}."))
+
+    def finish_active_dmts_miss(self, trial_end_s, reason):
+        row = self.get_active_trial_row()
+        if row is None:
+            self.clear_active_trial()
+            return
+        self.active_dmts_scored = True
+        if self.active_high_start_s is not None:
+            self.add_active_high_interval(trial_end_s)
+        row["crossing_duration_s"] = f"{self.active_crossing_total_s:.6f}"
+        row["HIT"] = 0
+        row["MISS"] = 1
+        row["CR"] = 0
+        row["FA"] = 0
+        row["ResultType"] = "MISS"
+        self.write_trial_log()
+        self.plot_queue.put(("results", None))
+        self.plot_queue.put(("log", f"DMTS trial {row['trial']} stopped: {reason}. Result=MISS."))
+        self.end_trial_state_interval(trial_end_s)
+        self.clear_active_trial()
+
+    def finish_active_dmts_timeline(self, trial_end_s):
+        if not self.active_dmts_scored:
+            reward_start_s = self.active_dmts_reward_start_s or trial_end_s
+            self.finish_active_dmts_reward_period(reward_start_s)
+        self.write_trial_log()
+        self.plot_queue.put(("results", None))
+        self.end_trial_state_interval(trial_end_s)
+        self.clear_active_trial()
 
     def start_active_lever_trial(self, trigger_time_s, iti_s):
         self.active_trial_index = self.trial_index
@@ -1487,8 +1596,13 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_id = 2
         self.active_dmts_test_sound_time_s = None
         self.active_dmts_response_start_s = None
+        self.active_dmts_response_end_s = None
+        self.active_dmts_reward_start_s = None
+        self.active_dmts_response_evaluated = False
+        self.active_dmts_response_met = False
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
+        self.active_dmts_scored = False
 
     def classify_trial_sound(self, sound_id):
         if self.is_lever_task():
