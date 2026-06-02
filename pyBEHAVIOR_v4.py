@@ -250,6 +250,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self._entry(trig, 0, "Sound id", self.sound_id, width=6, row=1)
         self._entry(trig, 2, "Level", self.sound_level, width=6, row=1)
         ttk.Button(trig, text="Test Sound", command=lambda: self.play_loaded_sound(use_sequence=False)).grid(row=1, column=4, padx=8, pady=4)
+        self.lever_release_check = ttk.Checkbutton(trig, text="Require release", variable=self.lever_require_release)
+        self.lever_release_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
 
         body = ttk.Frame(root)
         body.grid(row=4, column=0, sticky="nsew")
@@ -327,8 +329,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.lick_threshold_widgets = self._entry(trial, 2, "Lick thresh", self.lick_threshold, width=6, row=3)
         self.hit_threshold_widgets = self._entry(trial, 2, "Resp. hold %", self.hit_threshold_s, width=6, row=3)
         self.lever_hold_widgets = self._entry(trial, 0, "Lever hold s", self.lever_hold_time_s, width=6, row=3)
-        self.lever_release_check = ttk.Checkbutton(trial, text="Require release", variable=self.lever_require_release)
-        self.lever_release_check.grid(row=4, column=0, columnspan=2, sticky="w", padx=6, pady=4)
         self.sample_sound_widgets = self._entry(trial, 0, "Sample ID", self.sample_sound_id, width=6, row=4)
         self.test_sound_widgets = self._entry(trial, 2, "Test ID", self.test_sound_id, width=6, row=4)
         self.dmts_fork_grace_widgets = self._entry(trial, 4, "Fork grace s", self.dmts_fork_grace_s, width=6, row=4)
@@ -373,7 +373,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.set_widget_pair_visible(self.hit_threshold_widgets, not is_lever and not is_lick, row=3, col=2)
         self.set_widget_pair_visible(self.lever_hold_widgets, is_lever, row=3, col=0)
         if is_lever:
-            self.lever_release_check.grid(row=4, column=0, columnspan=2, sticky="w", padx=6, pady=4)
+            self.lever_release_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
         else:
             self.lever_release_check.grid_remove()
         self.set_widget_pair_visible(self.sample_sound_widgets, is_dmts, row=4, col=0)
