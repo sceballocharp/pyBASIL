@@ -1149,7 +1149,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             elif self.active_lever_low_start_s is not None:
                 low_duration_s = sample_time_s - self.active_lever_low_start_s
                 if low_duration_s >= self.get_lever_release_debounce_s():
-                    success = bool(self.active_lever_release_armed)
+                    success = self.is_lever_release_success(self.active_lever_low_start_s)
                     self.finish_active_lever_trial(self.active_lever_low_start_s, success=success)
             return
 
@@ -1337,6 +1337,19 @@ class BehaviorAcquisitionApp(tk.Tk):
     def get_lever_release_debounce_s(self):
         return 0.05
 
+    def is_lever_release_success(self, release_time_s):
+        if not self.lever_require_release.get():
+            return bool(self.active_lever_release_armed)
+        if self.active_high_start_s is None:
+            return False
+        hold_s = max(0.0, release_time_s - self.active_high_start_s)
+        target_s = self.get_lever_hold_time_s()
+        release_window_s = self.get_lever_release_window_s()
+        return target_s - release_window_s <= hold_s <= target_s + release_window_s
+
+    def get_lever_release_window_s(self):
+        return 0.1
+
     def play_next_lever_sound(self, sample_time_s):
         if not self.play_sound_on_crossing.get():
             return
@@ -1363,7 +1376,9 @@ class BehaviorAcquisitionApp(tk.Tk):
             if self.lever_require_release.get():
                 if not self.active_lever_release_armed:
                     self.active_lever_release_armed = True
-                    self.plot_queue.put(("log", f"Lever trial {row['trial']} hold criterion met; release to trigger reward."))
+                    self.plot_queue.put(("log", f"Lever trial {row['trial']} target hold reached; release now to trigger reward."))
+                if hold_s > self.get_lever_hold_time_s() + self.get_lever_release_window_s():
+                    self.finish_active_lever_trial(sample_time_s, success=False)
             else:
                 row["HIT"] = 1
                 row["MISS"] = 0
