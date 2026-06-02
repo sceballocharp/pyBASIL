@@ -110,6 +110,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_next_sound_time_s = None
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
+        self.lever_ready_for_new_trial = False
+        self.lever_ready_low_start_s = None
         self.lever_sound_gap_s = 0.5
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
@@ -307,6 +309,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.min_lick_count = tk.StringVar(value="")
         self.lick_threshold = tk.StringVar(value="")
         self.lever_hold_time_s = tk.StringVar(value="1")
+        self.lever_ready_low_s = tk.StringVar(value="0.2")
         self.sample_sound_id = tk.StringVar(value="1")
         self.test_sound_id = tk.StringVar(value="2")
         self.dmts_fork_grace_s = tk.StringVar(value="0.1")
@@ -329,6 +332,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.lick_threshold_widgets = self._entry(trial, 2, "Lick thresh", self.lick_threshold, width=6, row=3)
         self.hit_threshold_widgets = self._entry(trial, 2, "Resp. hold %", self.hit_threshold_s, width=6, row=3)
         self.lever_hold_widgets = self._entry(trial, 0, "Lever hold s", self.lever_hold_time_s, width=6, row=3)
+        self.lever_ready_low_widgets = self._entry(trial, 6, "Ready low s", self.lever_ready_low_s, width=6, row=3)
         self.sample_sound_widgets = self._entry(trial, 0, "Sample ID", self.sample_sound_id, width=6, row=4)
         self.test_sound_widgets = self._entry(trial, 2, "Test ID", self.test_sound_id, width=6, row=4)
         self.dmts_fork_grace_widgets = self._entry(trial, 4, "Fork grace s", self.dmts_fork_grace_s, width=6, row=4)
@@ -372,6 +376,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.set_widget_pair_visible(self.lick_threshold_widgets, not is_lever and is_lick, row=3, col=2)
         self.set_widget_pair_visible(self.hit_threshold_widgets, not is_lever and not is_lick, row=3, col=2)
         self.set_widget_pair_visible(self.lever_hold_widgets, is_lever, row=3, col=0)
+        self.set_widget_pair_visible(self.lever_ready_low_widgets, is_lever, row=3, col=6)
         if is_lever:
             self.lever_release_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
         else:
@@ -499,6 +504,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "LeverThreshold": self.threshold_v,
             "LeverHoldTime_s": self.lever_hold_time_s,
             "LeverRequireRelease": self.lever_require_release,
+            "LeverReadyLow_s": self.lever_ready_low_s,
             "SampleSoundId": self.sample_sound_id,
             "TestSoundId": self.test_sound_id,
             "DMTSForkGrace_s": self.dmts_fork_grace_s,
@@ -640,6 +646,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_next_sound_time_s = None
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
+        self.lever_ready_for_new_trial = False
+        self.lever_ready_low_start_s = None
         self.lever_sound_gap_s = 0.5
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
@@ -938,6 +946,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "LeverThreshold": self.threshold_v.get(),
             "LeverHoldTime_s": self.lever_hold_time_s.get(),
             "LeverRequireRelease": int(self.lever_require_release.get()),
+            "LeverReadyLow_s": self.lever_ready_low_s.get(),
             "MaxTrials": self.max_trials.get(),
             "SampleSoundId": self.sample_sound_id.get(),
             "TestSoundId": self.test_sound_id.get(),
@@ -991,6 +1000,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "LeverThreshold",
             "LeverHoldTime_s",
             "LeverRequireRelease",
+            "LeverReadyLow_s",
             "MaxTrials",
         )
         params = self.get_current_parameters()
@@ -1036,6 +1046,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "threshold_v": threshold,
             "lever_hold_time_s": self.parse_float_value(params["LeverHoldTime_s"], 1),
             "lever_require_release": params["LeverRequireRelease"],
+            "lever_ready_low_s": params["LeverReadyLow_s"],
             "iti_s": iti,
             "iti_rand_min_s": params["ITIrandMin_s"],
             "iti_rand_max_s": params["ITIrandMax_s"],
@@ -1153,10 +1164,16 @@ class BehaviorAcquisitionApp(tk.Tk):
                     self.finish_active_lever_trial(self.active_lever_low_start_s, success=success)
             return
 
+        self.update_lever_trial_arming(sample_time_s, is_high)
+
         if not crossed_up:
             return
 
         if sample_time_s < self.next_trial_allowed_time_s:
+            return
+
+        if not self.lever_ready_for_new_trial:
+            self.plot_queue.put(("log", "Lever press ignored: lever was not reset below threshold after ITI."))
             return
 
         max_trials = max(0, self.parse_int(self.max_trials, 0))
@@ -1172,6 +1189,21 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.last_trigger_time = sample_time_s
         self.plot_queue.put(("log", f"Lever crossed {threshold:g} V. Trial {self.trial_index} started; hold for {self.get_lever_hold_time_s():g} s."))
         self.evaluate_active_lever_trial(sample_time_s)
+
+    def update_lever_trial_arming(self, sample_time_s, is_high):
+        if sample_time_s < self.next_trial_allowed_time_s:
+            self.lever_ready_for_new_trial = False
+            self.lever_ready_low_start_s = None
+            return
+        if is_high:
+            self.lever_ready_for_new_trial = False
+            self.lever_ready_low_start_s = None
+            return
+        if self.lever_ready_low_start_s is None:
+            self.lever_ready_low_start_s = sample_time_s
+            return
+        if sample_time_s - self.lever_ready_low_start_s >= self.get_lever_ready_low_s():
+            self.lever_ready_for_new_trial = True
 
     def update_active_dmts_trial(self, sample_time_s, is_high, crossed_up, crossed_down):
         if not self.is_lick_trigger() and not self.active_dmts_scored:
@@ -1315,6 +1347,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_next_sound_time_s = trigger_time_s
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
+        self.lever_ready_for_new_trial = False
+        self.lever_ready_low_start_s = None
         self.next_trial_allowed_time_s = trigger_time_s + iti_s
         self.start_trial_state_interval(trigger_time_s)
 
@@ -1333,6 +1367,9 @@ class BehaviorAcquisitionApp(tk.Tk):
 
     def get_lever_hold_time_s(self):
         return max(0.0, self.parse_float(self.lever_hold_time_s, 1))
+
+    def get_lever_ready_low_s(self):
+        return max(0.0, self.parse_float(self.lever_ready_low_s, 0.2))
 
     def get_lever_release_debounce_s(self):
         return 0.05
@@ -1648,6 +1685,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_next_sound_time_s = None
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
+        self.lever_ready_for_new_trial = False
+        self.lever_ready_low_start_s = None
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
         self.active_dmts_test_sound_time_s = None
@@ -2083,6 +2122,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("TriggerType", params["TriggerTypeDropDown"]),
             ("Threshold", params["LeverThreshold"]),
             ("LeverRequireRelease", params["LeverRequireRelease"]),
+            ("LeverReadyLow_s", params["LeverReadyLow_s"]),
             ("SampleSoundId", params["SampleSoundId"]),
             ("TestSoundId", params["TestSoundId"]),
             ("Delay_s", params["Delay_s"]),
@@ -2667,7 +2707,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             y = height - bottom_pad - (v - min_v) / (max_v - min_v) * plot_height
             points.extend([x, y])
         x_axis_y = height - bottom_pad
-        self.draw_active_trial_shading(min_t, max_t, left_pad, top_pad, plot_width, x_axis_y)
+        self.draw_iti_shading(min_t, max_t, left_pad, top_pad, plot_width, x_axis_y)
         self.plot_canvas.create_line(left_pad, x_axis_y, width - right_pad, x_axis_y, fill="#cccccc")
         self.plot_canvas.create_line(left_pad, top_pad, left_pad, x_axis_y, fill="#cccccc")
         right_axis_x = left_pad + plot_width
@@ -2706,11 +2746,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.plot_canvas.create_text(width - 120, 42, anchor="nw", text="Sound output", fill="#2ca02c")
         self.plot_canvas.create_text(width - 120, 58, anchor="nw", text="Trial state", fill="#6f42c1")
 
-    def draw_active_trial_shading(self, min_t, max_t, left_pad, top_pad, plot_width, x_axis_y):
-        if self.active_trial_index is None or self.active_trial_start_s is None:
+    def draw_iti_shading(self, min_t, max_t, left_pad, top_pad, plot_width, x_axis_y):
+        if self.last_trigger_time <= -1e11 or self.next_trial_allowed_time_s <= self.last_trigger_time:
             return
-        shade_start_s = max(self.active_trial_start_s, min_t)
-        shade_end_s = self.active_trial_end_s if self.active_trial_end_s is not None else max_t
+        shade_start_s = max(self.last_trigger_time, min_t)
+        shade_end_s = min(self.next_trial_allowed_time_s, max_t)
         shade_end_s = min(max(shade_end_s, shade_start_s), max_t)
         if shade_end_s < min_t or shade_start_s > max_t:
             return
@@ -2718,8 +2758,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         x1 = left_pad + (shade_end_s - min_t) / (max_t - min_t) * plot_width
         if x1 <= x0:
             x1 = x0 + 1
-        self.plot_canvas.create_rectangle(x0, top_pad, x1, x_axis_y, fill="#eeeeee", outline="")
-        self.plot_canvas.create_line(x0, top_pad, x0, x_axis_y, fill="#bdbdbd", dash=(4, 3))
+        self.plot_canvas.create_rectangle(x0, top_pad, x1, x_axis_y, fill="#f3f0df", outline="")
+        self.plot_canvas.create_line(x0, top_pad, x0, x_axis_y, fill="#c7b76a", dash=(4, 3))
+        if self.next_trial_allowed_time_s <= max_t:
+            self.plot_canvas.create_line(x1, top_pad, x1, x_axis_y, fill="#c7b76a", dash=(4, 3))
 
     def draw_trial_state_trace(self, min_t, max_t, min_v, max_v, left_pad, plot_width, plot_height, x_axis_y):
         if not self.trial_state_intervals:

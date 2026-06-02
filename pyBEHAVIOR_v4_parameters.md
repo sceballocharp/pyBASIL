@@ -112,6 +112,7 @@ TaskType=Lever
 | `SoundLevel` | Sound level | Multiplicative gain for sound playback. |
 | `LeverHoldTime_s` | Lever hold time s | Time the lever signal must remain above threshold before reward logic is triggered. |
 | `LeverRequireRelease` | Require release | Optional second-level lever behavior. `0` rewards once hold time is reached; `1` requires release within `LeverHoldTime_s +/- 0.25 s`. Release before or after that range is a MISS. |
+| `LeverReadyLow_s` | Ready low s | Stable low duration required after ITI before a new lever press can start a trial. This prevents held-during-ITI or noisy release transitions from starting false trials. |
 | `Rewardduration_ms` | Reward duration ms | Water valve/trigger pulse duration in ms. |
 | `RewardGo` | RewardGo Prob | Probability that a successful lever response is rewarded, from `0` to `1`. |
 
