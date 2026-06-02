@@ -111,6 +111,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
         self.lever_reset_seen_for_new_trial = False
+        self.lever_pending_start_s = None
         self.lever_sound_gap_s = 0.5
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
@@ -642,6 +643,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
         self.lever_reset_seen_for_new_trial = False
+        self.lever_pending_start_s = None
         self.lever_sound_gap_s = 0.5
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
@@ -1157,15 +1159,23 @@ class BehaviorAcquisitionApp(tk.Tk):
 
         if sample_time_s < self.next_trial_allowed_time_s:
             self.lever_reset_seen_for_new_trial = False
+            self.lever_pending_start_s = None
             return
 
         if not is_high:
             self.lever_reset_seen_for_new_trial = True
-
-        if not crossed_up:
-            return
+            self.lever_pending_start_s = None
 
         if not self.lever_reset_seen_for_new_trial:
+            return
+
+        if crossed_up:
+            self.lever_pending_start_s = sample_time_s
+
+        if self.lever_pending_start_s is None:
+            return
+
+        if sample_time_s - self.lever_pending_start_s < self.get_lever_start_debounce_s():
             return
 
         max_trials = max(0, self.parse_int(self.max_trials, 0))
@@ -1175,10 +1185,11 @@ class BehaviorAcquisitionApp(tk.Tk):
 
         sound_id = self.parse_int(self.sound_id, 1)
         iti = self.draw_trial_iti_s()
-        self.create_trial(sound_id, sample_time_s, threshold, iti)
-        self.start_active_lever_trial(sample_time_s, iti)
-        self.play_next_lever_sound(sample_time_s)
-        self.last_trigger_time = sample_time_s
+        trigger_time_s = self.lever_pending_start_s
+        self.create_trial(sound_id, trigger_time_s, threshold, iti)
+        self.start_active_lever_trial(trigger_time_s, iti)
+        self.play_next_lever_sound(trigger_time_s)
+        self.last_trigger_time = trigger_time_s
         self.plot_queue.put(("log", f"Lever crossed {threshold:g} V. Trial {self.trial_index} started; hold for {self.get_lever_hold_time_s():g} s."))
         self.evaluate_active_lever_trial(sample_time_s)
 
@@ -1325,6 +1336,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
         self.lever_reset_seen_for_new_trial = False
+        self.lever_pending_start_s = None
         self.next_trial_allowed_time_s = trigger_time_s + iti_s
         self.start_trial_state_interval(trigger_time_s)
 
@@ -1346,6 +1358,9 @@ class BehaviorAcquisitionApp(tk.Tk):
 
     def get_lever_release_debounce_s(self):
         return 0.05
+
+    def get_lever_start_debounce_s(self):
+        return 0.1
 
     def is_lever_release_success(self, release_time_s):
         if not self.lever_require_release.get():
@@ -1659,6 +1674,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
         self.lever_reset_seen_for_new_trial = False
+        self.lever_pending_start_s = None
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
         self.active_dmts_test_sound_time_s = None

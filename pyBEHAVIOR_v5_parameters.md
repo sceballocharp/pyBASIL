@@ -115,7 +115,7 @@ TaskType=Lever
 | `Rewardduration_ms` | Reward duration ms | Water valve/trigger pulse duration in ms. |
 | `RewardGo` | RewardGo Prob | Probability that a successful lever response is rewarded, from `0` to `1`. |
 
-Lever trials also require a clean reset between trials: after ITI, the lever signal must be observed below `LeverThreshold` before the next upward crossing can start a new trial.
+Lever trials also require a clean reset between trials: after ITI, the lever signal must be observed below `LeverThreshold` before the next upward crossing can start a new trial. A new lever press must then remain above `LeverThreshold` for 100 ms before the trial is accepted, preventing single-sample noise from starting trials.
 
 ## DMTS
 
