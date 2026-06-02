@@ -109,6 +109,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_sound_id = 1
         self.active_lever_next_sound_time_s = None
         self.active_lever_low_start_s = None
+        self.active_lever_release_armed = False
         self.lever_sound_gap_s = 0.5
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
@@ -118,6 +119,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_reward_start_s = None
         self.active_dmts_response_evaluated = False
         self.active_dmts_response_met = False
+        self.active_dmts_low_start_s = None
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
@@ -302,8 +304,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.min_lick_count = tk.StringVar(value="")
         self.lick_threshold = tk.StringVar(value="")
         self.lever_hold_time_s = tk.StringVar(value="1")
+        self.lever_require_release = tk.BooleanVar(value=False)
         self.sample_sound_id = tk.StringVar(value="1")
         self.test_sound_id = tk.StringVar(value="2")
+        self.dmts_fork_grace_s = tk.StringVar(value="0.1")
         self.current_trial_var = tk.StringVar(value="0")
         for col in (1, 3, 5, 7):
             trial.columnconfigure(col, weight=1)
@@ -323,8 +327,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.lick_threshold_widgets = self._entry(trial, 2, "Lick thresh", self.lick_threshold, width=6, row=3)
         self.hit_threshold_widgets = self._entry(trial, 2, "Resp. hold %", self.hit_threshold_s, width=6, row=3)
         self.lever_hold_widgets = self._entry(trial, 0, "Lever hold s", self.lever_hold_time_s, width=6, row=3)
+        self.lever_release_check = ttk.Checkbutton(trial, text="Require release", variable=self.lever_require_release)
+        self.lever_release_check.grid(row=4, column=0, columnspan=2, sticky="w", padx=6, pady=4)
         self.sample_sound_widgets = self._entry(trial, 0, "Sample ID", self.sample_sound_id, width=6, row=4)
         self.test_sound_widgets = self._entry(trial, 2, "Test ID", self.test_sound_id, width=6, row=4)
+        self.dmts_fork_grace_widgets = self._entry(trial, 4, "Fork grace s", self.dmts_fork_grace_s, width=6, row=4)
         for var in (self.sound_delay_s, self.delay_s, self.sound_duration_s, self.response_window_s, self.reward_delay_s):
             var.trace_add("write", lambda *_: self.update_trial_duration())
         self.task_type.trace_add("write", lambda *_: (self.update_task_parameter_visibility(), self.update_trial_duration()))
@@ -365,8 +372,13 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.set_widget_pair_visible(self.lick_threshold_widgets, not is_lever and is_lick, row=3, col=2)
         self.set_widget_pair_visible(self.hit_threshold_widgets, not is_lever and not is_lick, row=3, col=2)
         self.set_widget_pair_visible(self.lever_hold_widgets, is_lever, row=3, col=0)
+        if is_lever:
+            self.lever_release_check.grid(row=4, column=0, columnspan=2, sticky="w", padx=6, pady=4)
+        else:
+            self.lever_release_check.grid_remove()
         self.set_widget_pair_visible(self.sample_sound_widgets, is_dmts, row=4, col=0)
         self.set_widget_pair_visible(self.test_sound_widgets, is_dmts, row=4, col=2)
+        self.set_widget_pair_visible(self.dmts_fork_grace_widgets, is_dmts, row=4, col=4)
 
     def set_widget_pair_visible(self, widgets, visible, row, col):
         label_widget, entry_widget = widgets
@@ -486,8 +498,10 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Lickthreshold": self.lick_threshold,
             "LeverThreshold": self.threshold_v,
             "LeverHoldTime_s": self.lever_hold_time_s,
+            "LeverRequireRelease": self.lever_require_release,
             "SampleSoundId": self.sample_sound_id,
             "TestSoundId": self.test_sound_id,
+            "DMTSForkGrace_s": self.dmts_fork_grace_s,
         }
         applied = 0
         for key, var in mapping.items():
@@ -625,6 +639,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_sound_id = 1
         self.active_lever_next_sound_time_s = None
         self.active_lever_low_start_s = None
+        self.active_lever_release_armed = False
         self.lever_sound_gap_s = 0.5
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
@@ -634,6 +649,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_reward_start_s = None
         self.active_dmts_response_evaluated = False
         self.active_dmts_response_met = False
+        self.active_dmts_low_start_s = None
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
@@ -921,9 +937,11 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Lickthreshold": self.lick_threshold.get(),
             "LeverThreshold": self.threshold_v.get(),
             "LeverHoldTime_s": self.lever_hold_time_s.get(),
+            "LeverRequireRelease": int(self.lever_require_release.get()),
             "MaxTrials": self.max_trials.get(),
             "SampleSoundId": self.sample_sound_id.get(),
             "TestSoundId": self.test_sound_id.get(),
+            "DMTSForkGrace_s": self.dmts_fork_grace_s.get(),
             "PlaySound": int(self.play_sound_on_crossing.get()),
             "TriggerOutput": int(self.trigger_output_on_crossing.get()),
         }
@@ -949,6 +967,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "NoGoSoundId",
             "SampleSoundId",
             "TestSoundId",
+            "DMTSForkGrace_s",
             "SoundLevel",
             "RandomSeed",
             "ITI_s",
@@ -971,6 +990,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Lickthreshold",
             "LeverThreshold",
             "LeverHoldTime_s",
+            "LeverRequireRelease",
             "MaxTrials",
         )
         params = self.get_current_parameters()
@@ -1010,10 +1030,12 @@ class BehaviorAcquisitionApp(tk.Tk):
             "task_type": params["TaskType"],
             "sample_sound_id": params["SampleSoundId"],
             "test_sound_id": params["TestSoundId"],
+            "dmts_fork_grace_s": params["DMTSForkGrace_s"],
             "hit_threshold_percent": self.parse_float_value(params["HIT"], 50),
             "hit_threshold_s": self.get_hit_threshold_s(),
             "threshold_v": threshold,
             "lever_hold_time_s": self.parse_float_value(params["LeverHoldTime_s"], 1),
+            "lever_require_release": params["LeverRequireRelease"],
             "iti_s": iti,
             "iti_rand_min_s": params["ITIrandMin_s"],
             "iti_rand_max_s": params["ITIrandMax_s"],
@@ -1086,6 +1108,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_time_s = trigger_time_s + sound_duration_s + delay_s
         self.active_dmts_response_evaluated = False
         self.active_dmts_response_met = False
+        self.active_dmts_low_start_s = None
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
@@ -1126,7 +1149,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             elif self.active_lever_low_start_s is not None:
                 low_duration_s = sample_time_s - self.active_lever_low_start_s
                 if low_duration_s >= self.get_lever_release_debounce_s():
-                    self.finish_active_lever_trial(self.active_lever_low_start_s, success=False)
+                    success = bool(self.active_lever_release_armed)
+                    self.finish_active_lever_trial(self.active_lever_low_start_s, success=success)
             return
 
         if not crossed_up:
@@ -1150,9 +1174,16 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.evaluate_active_lever_trial(sample_time_s)
 
     def update_active_dmts_trial(self, sample_time_s, is_high, crossed_up, crossed_down):
-        if crossed_down and not self.is_lick_trigger() and not self.active_dmts_scored:
-            self.finish_active_dmts_miss(sample_time_s, "fork event ended")
-            return
+        if not self.is_lick_trigger() and not self.active_dmts_scored:
+            if is_high:
+                self.active_dmts_low_start_s = None
+            elif crossed_down:
+                self.active_dmts_low_start_s = sample_time_s
+            elif self.active_dmts_low_start_s is not None:
+                low_duration_s = sample_time_s - self.active_dmts_low_start_s
+                if low_duration_s >= self.get_dmts_fork_grace_s():
+                    self.finish_active_dmts_miss(self.active_dmts_low_start_s, "fork event ended")
+                    return
 
         if self.active_dmts_test_sound_time_s is not None and not self.active_dmts_test_sound_played:
             if sample_time_s >= self.active_dmts_test_sound_time_s:
@@ -1258,6 +1289,9 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.end_trial_state_interval(trial_end_s)
         self.clear_active_trial()
 
+    def get_dmts_fork_grace_s(self):
+        return max(0.0, self.parse_float(self.dmts_fork_grace_s, 0.1))
+
     def finish_active_dmts_timeline(self, trial_end_s):
         if not self.active_dmts_scored:
             reward_start_s = self.active_dmts_reward_start_s or trial_end_s
@@ -1280,6 +1314,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_sound_id = self.parse_int(self.sound_id, 1)
         self.active_lever_next_sound_time_s = trigger_time_s
         self.active_lever_low_start_s = None
+        self.active_lever_release_armed = False
         self.next_trial_allowed_time_s = trigger_time_s + iti_s
         self.start_trial_state_interval(trigger_time_s)
 
@@ -1325,14 +1360,19 @@ class BehaviorAcquisitionApp(tk.Tk):
         hold_s = max(0.0, sample_time_s - self.active_high_start_s)
         row["crossing_duration_s"] = f"{hold_s:.6f}"
         if hold_s >= self.get_lever_hold_time_s() and not row["HIT"]:
-            row["HIT"] = 1
-            row["MISS"] = 0
-            row["CR"] = 0
-            row["FA"] = 0
-            row["ResultType"] = "HIT"
-            self.maybe_send_go_reward(row, hold_s, start_s=sample_time_s)
-            self.write_trial_log()
-            self.plot_queue.put(("results", None))
+            if self.lever_require_release.get():
+                if not self.active_lever_release_armed:
+                    self.active_lever_release_armed = True
+                    self.plot_queue.put(("log", f"Lever trial {row['trial']} hold criterion met; release to trigger reward."))
+            else:
+                row["HIT"] = 1
+                row["MISS"] = 0
+                row["CR"] = 0
+                row["FA"] = 0
+                row["ResultType"] = "HIT"
+                self.maybe_send_go_reward(row, hold_s, start_s=sample_time_s)
+                self.write_trial_log()
+                self.plot_queue.put(("results", None))
 
     def finish_active_lever_trial(self, trial_end_s, success):
         row = self.get_active_trial_row()
@@ -1592,6 +1632,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_sound_id = 1
         self.active_lever_next_sound_time_s = None
         self.active_lever_low_start_s = None
+        self.active_lever_release_armed = False
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
         self.active_dmts_test_sound_time_s = None
@@ -1600,6 +1641,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_reward_start_s = None
         self.active_dmts_response_evaluated = False
         self.active_dmts_response_met = False
+        self.active_dmts_low_start_s = None
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
@@ -2025,9 +2067,11 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("TaskType", params["TaskType"]),
             ("TriggerType", params["TriggerTypeDropDown"]),
             ("Threshold", params["LeverThreshold"]),
+            ("LeverRequireRelease", params["LeverRequireRelease"]),
             ("SampleSoundId", params["SampleSoundId"]),
             ("TestSoundId", params["TestSoundId"]),
             ("Delay_s", params["Delay_s"]),
+            ("DMTSForkGrace_s", params["DMTSForkGrace_s"]),
             ("SoundDuration_s", params["SoundDuration_s"]),
             ("ResponseWindow_s", params["ResponseWindow_s"]),
             ("Rewardduration_ms", params["Rewardduration_ms"]),
