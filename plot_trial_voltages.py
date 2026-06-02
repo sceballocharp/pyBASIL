@@ -1,5 +1,6 @@
 from pathlib import Path
 import csv
+import pickle
 from tkinter import Tk, StringVar, filedialog, messagebox
 from tkinter import ttk
 
@@ -188,6 +189,9 @@ class TrialVoltageViewer:
         ttk.Entry(file_frame, textvariable=self.file_path).pack(
             side="left", fill="x", expand=True, padx=8
         )
+        ttk.Button(file_frame, text="Save summary", command=self.save_summary).pack(
+            side="left", padx=(0, 6)
+        )
         ttk.Button(file_frame, text="Quit", command=self.close).pack(side="left")
 
         control_frame = ttk.Frame(root_frame)
@@ -240,6 +244,32 @@ class TrialVoltageViewer:
         )
         if selected:
             self.load_file(Path(selected))
+
+    def save_summary(self):
+        if not self.trials:
+            messagebox.showwarning("No data", "Load a log file before saving a summary.")
+            return
+
+        default_name = f"{Path(self.file_path.get()).stem}_voltage_summary.pkl"
+        selected = filedialog.asksaveasfilename(
+            initialdir=str(Path(self.file_path.get()).parent),
+            initialfile=default_name,
+            title="Save voltage summary",
+            defaultextension=".pkl",
+            filetypes=(("Pickle files", "*.pkl"), ("All files", "*.*")),
+        )
+        if not selected:
+            return
+
+        summary_data = self.build_summary_dictionary()
+        try:
+            with open(selected, "wb") as output_file:
+                pickle.dump(summary_data, output_file)
+        except Exception as error:
+            messagebox.showerror("Could not save summary", str(error))
+            return
+
+        self.status.set(f"Saved voltage summary: {selected}")
 
     def close(self):
         plt.close(self.figure)
@@ -350,6 +380,39 @@ class TrialVoltageViewer:
 
     def count_trials(self, trial_type):
         return sum(trial["trial_type"].upper() == trial_type for trial in self.trials)
+
+    def build_summary_dictionary(self):
+        return {
+            "source_file": self.file_path.get(),
+            "incomplete_trials": self.incomplete_trials,
+            "go": self.summary_for_trial_type("GO"),
+            "nogo": self.summary_for_trial_type("NO-GO"),
+        }
+
+    def summary_for_trial_type(self, trial_type):
+        values, pattern_labels = self.pattern_values_for_trial_type(trial_type)
+        if values.size == 0:
+            means = np.array([])
+            stds = np.array([])
+            trial_numbers = []
+        else:
+            means = np.nanmean(values, axis=0)
+            stds = np.nanstd(values, axis=0)
+            trial_numbers = [
+                trial["trial"]
+                for trial in self.trials
+                if trial["trial_type"].upper() == trial_type
+            ]
+
+        return {
+            "trial_type": trial_type,
+            "pattern": pattern_labels,
+            "trial_numbers": trial_numbers,
+            "n_trials": len(trial_numbers),
+            "values": values,
+            "mean": means,
+            "std": stds,
+        }
 
     def pattern_values_for_trial_type(self, trial_type):
         values = []
