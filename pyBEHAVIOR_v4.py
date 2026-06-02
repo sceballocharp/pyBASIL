@@ -239,6 +239,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.trigger_output_on_crossing = tk.BooleanVar(value=True)
         self.play_sound_on_crossing = tk.BooleanVar(value=True)
         self.threshold_v = tk.StringVar(value="1")
+        self.lever_ready_threshold_v = tk.StringVar(value="0.5")
         self.pulse_ms = tk.StringVar(value="50")
         self.sound_id = tk.StringVar(value="1")
         self.sound_level = tk.StringVar(value="1")
@@ -256,6 +257,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         ttk.Button(trig, text="Test Sound", command=lambda: self.play_loaded_sound(use_sequence=False)).grid(row=1, column=4, padx=8, pady=4)
         self.lever_release_check = ttk.Checkbutton(trig, text="Require release", variable=self.lever_require_release)
         self.lever_release_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
+        self.lever_ready_threshold_widgets = self._entry(trig, 6, "Ready low V", self.lever_ready_threshold_v, width=6, row=1)
 
         body = ttk.Frame(root)
         body.grid(row=4, column=0, sticky="nsew")
@@ -380,8 +382,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.set_widget_pair_visible(self.lever_ready_low_widgets, is_lever, row=3, col=6)
         if is_lever:
             self.lever_release_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
+            self.set_widget_pair_visible(self.lever_ready_threshold_widgets, True, row=1, col=6)
         else:
             self.lever_release_check.grid_remove()
+            self.set_widget_pair_visible(self.lever_ready_threshold_widgets, False, row=1, col=6)
         self.set_widget_pair_visible(self.sample_sound_widgets, is_dmts, row=4, col=0)
         self.set_widget_pair_visible(self.test_sound_widgets, is_dmts, row=4, col=2)
         self.set_widget_pair_visible(self.dmts_fork_grace_widgets, is_dmts, row=4, col=4)
@@ -503,6 +507,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Minlickcount": self.min_lick_count,
             "Lickthreshold": self.lick_threshold,
             "LeverThreshold": self.threshold_v,
+            "LeverReadyThreshold": self.lever_ready_threshold_v,
             "LeverHoldTime_s": self.lever_hold_time_s,
             "LeverRequireRelease": self.lever_require_release,
             "LeverReadyLow_s": self.lever_ready_low_s,
@@ -946,6 +951,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Minlickcount": self.min_lick_count.get(),
             "Lickthreshold": self.lick_threshold.get(),
             "LeverThreshold": self.threshold_v.get(),
+            "LeverReadyThreshold": self.lever_ready_threshold_v.get(),
             "LeverHoldTime_s": self.lever_hold_time_s.get(),
             "LeverRequireRelease": int(self.lever_require_release.get()),
             "LeverReadyLow_s": self.lever_ready_low_s.get(),
@@ -1000,6 +1006,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Minlickcount",
             "Lickthreshold",
             "LeverThreshold",
+            "LeverReadyThreshold",
             "LeverHoldTime_s",
             "LeverRequireRelease",
             "LeverReadyLow_s",
@@ -1046,6 +1053,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "hit_threshold_percent": self.parse_float_value(params["HIT"], 50),
             "hit_threshold_s": self.get_hit_threshold_s(),
             "threshold_v": threshold,
+            "lever_ready_threshold": params["LeverReadyThreshold"],
             "lever_hold_time_s": self.parse_float_value(params["LeverHoldTime_s"], 1),
             "lever_require_release": params["LeverRequireRelease"],
             "lever_ready_low_s": params["LeverReadyLow_s"],
@@ -1166,7 +1174,7 @@ class BehaviorAcquisitionApp(tk.Tk):
                     self.finish_active_lever_trial(self.active_lever_low_start_s, success=success)
             return
 
-        self.update_lever_trial_arming(sample_time_s, is_high)
+        self.update_lever_trial_arming(sample_time_s, value)
 
         if not crossed_up:
             return
@@ -1194,13 +1202,13 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.plot_queue.put(("log", f"Lever crossed {threshold:g} V. Trial {self.trial_index} started; hold for {self.get_lever_hold_time_s():g} s."))
         self.evaluate_active_lever_trial(sample_time_s)
 
-    def update_lever_trial_arming(self, sample_time_s, is_high):
+    def update_lever_trial_arming(self, sample_time_s, value):
         if sample_time_s < self.next_trial_allowed_time_s:
             self.lever_ready_for_new_trial = False
             self.lever_ready_low_start_s = None
             self.lever_not_ready_logged = False
             return
-        if is_high:
+        if value >= self.get_lever_ready_threshold_v():
             self.lever_ready_for_new_trial = False
             self.lever_ready_low_start_s = None
             return
@@ -1377,6 +1385,9 @@ class BehaviorAcquisitionApp(tk.Tk):
 
     def get_lever_ready_low_s(self):
         return max(0.0, self.parse_float(self.lever_ready_low_s, 0.2))
+
+    def get_lever_ready_threshold_v(self):
+        return self.parse_float(self.lever_ready_threshold_v, self.parse_float(self.threshold_v, 1))
 
     def get_lever_release_debounce_s(self):
         return 0.05
@@ -2129,6 +2140,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("TaskType", params["TaskType"]),
             ("TriggerType", params["TriggerTypeDropDown"]),
             ("Threshold", params["LeverThreshold"]),
+            ("LeverReadyThreshold", params["LeverReadyThreshold"]),
             ("LeverRequireRelease", params["LeverRequireRelease"]),
             ("LeverReadyLow_s", params["LeverReadyLow_s"]),
             ("SampleSoundId", params["SampleSoundId"]),

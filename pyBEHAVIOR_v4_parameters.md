@@ -108,6 +108,7 @@ TaskType=Lever
 | --- | --- | --- |
 | `TaskType` | Task type | Protocol identifier, `Lever`. |
 | `LeverThreshold` | Lever threshold V | Voltage threshold crossed by the lever signal to start a lever response. |
+| `LeverReadyThreshold` | Ready low V | Voltage threshold used only for lever reset/arming. After ITI, the signal must stay below this value for `LeverReadyLow_s` before a new lever trial can start. |
 | `GoSoundId` | GO sound ID | Sound ID triggered when the lever threshold is crossed. |
 | `SoundLevel` | Sound level | Multiplicative gain for sound playback. |
 | `LeverHoldTime_s` | Lever hold time s | Time the lever signal must remain above threshold before reward logic is triggered. |
