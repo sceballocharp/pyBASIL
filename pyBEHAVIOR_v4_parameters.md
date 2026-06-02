@@ -146,6 +146,7 @@ DMTS means delayed match to sample. The protocol generator can create these para
 | `Delay_s` | Delay s | Delay between the end of sample sound and start of test sound. |
 | `ResponseWindow_s` | Response window s | Window after the test sound during which behavior is scored. |
 | `RewardDelay_s` | Reward delay s | Delay from response-window end to reward delivery. |
+| `DMTSForkGrace_s` | Fork grace s | IRFork-only grace/debounce duration. The fork signal must remain below threshold for this long before the trial stops as a MISS. |
 
 ### Outcome
 

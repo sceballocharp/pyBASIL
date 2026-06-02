@@ -118,6 +118,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_reward_start_s = None
         self.active_dmts_response_evaluated = False
         self.active_dmts_response_met = False
+        self.active_dmts_low_start_s = None
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
@@ -304,6 +305,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.lever_hold_time_s = tk.StringVar(value="1")
         self.sample_sound_id = tk.StringVar(value="1")
         self.test_sound_id = tk.StringVar(value="2")
+        self.dmts_fork_grace_s = tk.StringVar(value="0.1")
         self.current_trial_var = tk.StringVar(value="0")
         for col in (1, 3, 5, 7):
             trial.columnconfigure(col, weight=1)
@@ -325,6 +327,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.lever_hold_widgets = self._entry(trial, 0, "Lever hold s", self.lever_hold_time_s, width=6, row=3)
         self.sample_sound_widgets = self._entry(trial, 0, "Sample ID", self.sample_sound_id, width=6, row=4)
         self.test_sound_widgets = self._entry(trial, 2, "Test ID", self.test_sound_id, width=6, row=4)
+        self.dmts_fork_grace_widgets = self._entry(trial, 4, "Fork grace s", self.dmts_fork_grace_s, width=6, row=4)
         for var in (self.sound_delay_s, self.delay_s, self.sound_duration_s, self.response_window_s, self.reward_delay_s):
             var.trace_add("write", lambda *_: self.update_trial_duration())
         self.task_type.trace_add("write", lambda *_: (self.update_task_parameter_visibility(), self.update_trial_duration()))
@@ -367,6 +370,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.set_widget_pair_visible(self.lever_hold_widgets, is_lever, row=3, col=0)
         self.set_widget_pair_visible(self.sample_sound_widgets, is_dmts, row=4, col=0)
         self.set_widget_pair_visible(self.test_sound_widgets, is_dmts, row=4, col=2)
+        self.set_widget_pair_visible(self.dmts_fork_grace_widgets, is_dmts, row=4, col=4)
 
     def set_widget_pair_visible(self, widgets, visible, row, col):
         label_widget, entry_widget = widgets
@@ -488,6 +492,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "LeverHoldTime_s": self.lever_hold_time_s,
             "SampleSoundId": self.sample_sound_id,
             "TestSoundId": self.test_sound_id,
+            "DMTSForkGrace_s": self.dmts_fork_grace_s,
         }
         applied = 0
         for key, var in mapping.items():
@@ -634,6 +639,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_reward_start_s = None
         self.active_dmts_response_evaluated = False
         self.active_dmts_response_met = False
+        self.active_dmts_low_start_s = None
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
@@ -924,6 +930,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "MaxTrials": self.max_trials.get(),
             "SampleSoundId": self.sample_sound_id.get(),
             "TestSoundId": self.test_sound_id.get(),
+            "DMTSForkGrace_s": self.dmts_fork_grace_s.get(),
             "PlaySound": int(self.play_sound_on_crossing.get()),
             "TriggerOutput": int(self.trigger_output_on_crossing.get()),
         }
@@ -949,6 +956,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "NoGoSoundId",
             "SampleSoundId",
             "TestSoundId",
+            "DMTSForkGrace_s",
             "SoundLevel",
             "RandomSeed",
             "ITI_s",
@@ -1010,6 +1018,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "task_type": params["TaskType"],
             "sample_sound_id": params["SampleSoundId"],
             "test_sound_id": params["TestSoundId"],
+            "dmts_fork_grace_s": params["DMTSForkGrace_s"],
             "hit_threshold_percent": self.parse_float_value(params["HIT"], 50),
             "hit_threshold_s": self.get_hit_threshold_s(),
             "threshold_v": threshold,
@@ -1086,6 +1095,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_time_s = trigger_time_s + sound_duration_s + delay_s
         self.active_dmts_response_evaluated = False
         self.active_dmts_response_met = False
+        self.active_dmts_low_start_s = None
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
@@ -1150,9 +1160,16 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.evaluate_active_lever_trial(sample_time_s)
 
     def update_active_dmts_trial(self, sample_time_s, is_high, crossed_up, crossed_down):
-        if crossed_down and not self.is_lick_trigger() and not self.active_dmts_scored:
-            self.finish_active_dmts_miss(sample_time_s, "fork event ended")
-            return
+        if not self.is_lick_trigger() and not self.active_dmts_scored:
+            if is_high:
+                self.active_dmts_low_start_s = None
+            elif crossed_down:
+                self.active_dmts_low_start_s = sample_time_s
+            elif self.active_dmts_low_start_s is not None:
+                low_duration_s = sample_time_s - self.active_dmts_low_start_s
+                if low_duration_s >= self.get_dmts_fork_grace_s():
+                    self.finish_active_dmts_miss(self.active_dmts_low_start_s, "fork event ended")
+                    return
 
         if self.active_dmts_test_sound_time_s is not None and not self.active_dmts_test_sound_played:
             if sample_time_s >= self.active_dmts_test_sound_time_s:
@@ -1257,6 +1274,9 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.plot_queue.put(("log", f"DMTS trial {row['trial']} stopped: {reason}. Result=MISS."))
         self.end_trial_state_interval(trial_end_s)
         self.clear_active_trial()
+
+    def get_dmts_fork_grace_s(self):
+        return max(0.0, self.parse_float(self.dmts_fork_grace_s, 0.1))
 
     def finish_active_dmts_timeline(self, trial_end_s):
         if not self.active_dmts_scored:
@@ -1600,6 +1620,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_reward_start_s = None
         self.active_dmts_response_evaluated = False
         self.active_dmts_response_met = False
+        self.active_dmts_low_start_s = None
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
@@ -2028,6 +2049,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("SampleSoundId", params["SampleSoundId"]),
             ("TestSoundId", params["TestSoundId"]),
             ("Delay_s", params["Delay_s"]),
+            ("DMTSForkGrace_s", params["DMTSForkGrace_s"]),
             ("SoundDuration_s", params["SoundDuration_s"]),
             ("ResponseWindow_s", params["ResponseWindow_s"]),
             ("Rewardduration_ms", params["Rewardduration_ms"]),
