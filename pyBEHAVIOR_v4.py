@@ -112,6 +112,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_release_armed = False
         self.lever_ready_for_new_trial = False
         self.lever_ready_low_start_s = None
+        self.lever_not_ready_logged = False
         self.lever_sound_gap_s = 0.5
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
@@ -648,6 +649,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_release_armed = False
         self.lever_ready_for_new_trial = False
         self.lever_ready_low_start_s = None
+        self.lever_not_ready_logged = False
         self.lever_sound_gap_s = 0.5
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
@@ -1173,7 +1175,9 @@ class BehaviorAcquisitionApp(tk.Tk):
             return
 
         if not self.lever_ready_for_new_trial:
-            self.plot_queue.put(("log", "Lever press ignored: lever was not reset below threshold after ITI."))
+            if not self.lever_not_ready_logged:
+                self.plot_queue.put(("log", "Lever press ignored: lever was not reset below threshold after ITI."))
+                self.lever_not_ready_logged = True
             return
 
         max_trials = max(0, self.parse_int(self.max_trials, 0))
@@ -1194,6 +1198,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         if sample_time_s < self.next_trial_allowed_time_s:
             self.lever_ready_for_new_trial = False
             self.lever_ready_low_start_s = None
+            self.lever_not_ready_logged = False
             return
         if is_high:
             self.lever_ready_for_new_trial = False
@@ -1204,6 +1209,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             return
         if sample_time_s - self.lever_ready_low_start_s >= self.get_lever_ready_low_s():
             self.lever_ready_for_new_trial = True
+            self.lever_not_ready_logged = False
 
     def update_active_dmts_trial(self, sample_time_s, is_high, crossed_up, crossed_down):
         if not self.is_lick_trigger() and not self.active_dmts_scored:
@@ -1349,6 +1355,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_release_armed = False
         self.lever_ready_for_new_trial = False
         self.lever_ready_low_start_s = None
+        self.lever_not_ready_logged = False
         self.next_trial_allowed_time_s = trigger_time_s + iti_s
         self.start_trial_state_interval(trigger_time_s)
 
@@ -1687,6 +1694,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_release_armed = False
         self.lever_ready_for_new_trial = False
         self.lever_ready_low_start_s = None
+        self.lever_not_ready_logged = False
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
         self.active_dmts_test_sound_time_s = None
