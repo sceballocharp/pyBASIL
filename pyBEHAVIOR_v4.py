@@ -1348,7 +1348,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         return target_s - release_window_s <= hold_s <= target_s + release_window_s
 
     def get_lever_release_window_s(self):
-        return 0.1
+        return 0.25
 
     def play_next_lever_sound(self, sample_time_s):
         if not self.play_sound_on_crossing.get():

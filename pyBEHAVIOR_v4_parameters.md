@@ -111,7 +111,7 @@ TaskType=Lever
 | `GoSoundId` | GO sound ID | Sound ID triggered when the lever threshold is crossed. |
 | `SoundLevel` | Sound level | Multiplicative gain for sound playback. |
 | `LeverHoldTime_s` | Lever hold time s | Time the lever signal must remain above threshold before reward logic is triggered. |
-| `LeverRequireRelease` | Require release | Optional second-level lever behavior. `0` rewards once hold time is reached; `1` requires release within `LeverHoldTime_s +/- 0.1 s`. Release before or after that range is a MISS. |
+| `LeverRequireRelease` | Require release | Optional second-level lever behavior. `0` rewards once hold time is reached; `1` requires release within `LeverHoldTime_s +/- 0.25 s`. Release before or after that range is a MISS. |
 | `Rewardduration_ms` | Reward duration ms | Water valve/trigger pulse duration in ms. |
 | `RewardGo` | RewardGo Prob | Probability that a successful lever response is rewarded, from `0` to `1`. |
 
