@@ -110,9 +110,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_next_sound_time_s = None
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
-        self.lever_ready_for_new_trial = False
-        self.lever_ready_low_start_s = None
-        self.lever_not_ready_logged = False
         self.lever_sound_gap_s = 0.5
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
@@ -239,7 +236,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.trigger_output_on_crossing = tk.BooleanVar(value=True)
         self.play_sound_on_crossing = tk.BooleanVar(value=True)
         self.threshold_v = tk.StringVar(value="1")
-        self.lever_ready_threshold_v = tk.StringVar(value="0.5")
         self.pulse_ms = tk.StringVar(value="50")
         self.sound_id = tk.StringVar(value="1")
         self.sound_level = tk.StringVar(value="1")
@@ -257,7 +253,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         ttk.Button(trig, text="Test Sound", command=lambda: self.play_loaded_sound(use_sequence=False)).grid(row=1, column=4, padx=8, pady=4)
         self.lever_release_check = ttk.Checkbutton(trig, text="Require release", variable=self.lever_require_release)
         self.lever_release_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
-        self.lever_ready_threshold_widgets = self._entry(trig, 6, "Ready low V", self.lever_ready_threshold_v, width=6, row=1)
 
         body = ttk.Frame(root)
         body.grid(row=4, column=0, sticky="nsew")
@@ -312,7 +307,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.min_lick_count = tk.StringVar(value="")
         self.lick_threshold = tk.StringVar(value="")
         self.lever_hold_time_s = tk.StringVar(value="1")
-        self.lever_ready_low_s = tk.StringVar(value="0.2")
         self.sample_sound_id = tk.StringVar(value="1")
         self.test_sound_id = tk.StringVar(value="2")
         self.dmts_fork_grace_s = tk.StringVar(value="0.1")
@@ -335,7 +329,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.lick_threshold_widgets = self._entry(trial, 2, "Lick thresh", self.lick_threshold, width=6, row=3)
         self.hit_threshold_widgets = self._entry(trial, 2, "Resp. hold %", self.hit_threshold_s, width=6, row=3)
         self.lever_hold_widgets = self._entry(trial, 0, "Lever hold s", self.lever_hold_time_s, width=6, row=3)
-        self.lever_ready_low_widgets = self._entry(trial, 6, "Ready low s", self.lever_ready_low_s, width=6, row=3)
         self.sample_sound_widgets = self._entry(trial, 0, "Sample ID", self.sample_sound_id, width=6, row=4)
         self.test_sound_widgets = self._entry(trial, 2, "Test ID", self.test_sound_id, width=6, row=4)
         self.dmts_fork_grace_widgets = self._entry(trial, 4, "Fork grace s", self.dmts_fork_grace_s, width=6, row=4)
@@ -379,13 +372,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.set_widget_pair_visible(self.lick_threshold_widgets, not is_lever and is_lick, row=3, col=2)
         self.set_widget_pair_visible(self.hit_threshold_widgets, not is_lever and not is_lick, row=3, col=2)
         self.set_widget_pair_visible(self.lever_hold_widgets, is_lever, row=3, col=0)
-        self.set_widget_pair_visible(self.lever_ready_low_widgets, is_lever, row=3, col=6)
         if is_lever:
             self.lever_release_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
-            self.set_widget_pair_visible(self.lever_ready_threshold_widgets, True, row=1, col=6)
         else:
             self.lever_release_check.grid_remove()
-            self.set_widget_pair_visible(self.lever_ready_threshold_widgets, False, row=1, col=6)
         self.set_widget_pair_visible(self.sample_sound_widgets, is_dmts, row=4, col=0)
         self.set_widget_pair_visible(self.test_sound_widgets, is_dmts, row=4, col=2)
         self.set_widget_pair_visible(self.dmts_fork_grace_widgets, is_dmts, row=4, col=4)
@@ -507,10 +497,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Minlickcount": self.min_lick_count,
             "Lickthreshold": self.lick_threshold,
             "LeverThreshold": self.threshold_v,
-            "LeverReadyThreshold": self.lever_ready_threshold_v,
             "LeverHoldTime_s": self.lever_hold_time_s,
             "LeverRequireRelease": self.lever_require_release,
-            "LeverReadyLow_s": self.lever_ready_low_s,
             "SampleSoundId": self.sample_sound_id,
             "TestSoundId": self.test_sound_id,
             "DMTSForkGrace_s": self.dmts_fork_grace_s,
@@ -652,9 +640,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_next_sound_time_s = None
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
-        self.lever_ready_for_new_trial = False
-        self.lever_ready_low_start_s = None
-        self.lever_not_ready_logged = False
         self.lever_sound_gap_s = 0.5
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
@@ -951,10 +936,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Minlickcount": self.min_lick_count.get(),
             "Lickthreshold": self.lick_threshold.get(),
             "LeverThreshold": self.threshold_v.get(),
-            "LeverReadyThreshold": self.lever_ready_threshold_v.get(),
             "LeverHoldTime_s": self.lever_hold_time_s.get(),
             "LeverRequireRelease": int(self.lever_require_release.get()),
-            "LeverReadyLow_s": self.lever_ready_low_s.get(),
             "MaxTrials": self.max_trials.get(),
             "SampleSoundId": self.sample_sound_id.get(),
             "TestSoundId": self.test_sound_id.get(),
@@ -1006,10 +989,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Minlickcount",
             "Lickthreshold",
             "LeverThreshold",
-            "LeverReadyThreshold",
             "LeverHoldTime_s",
             "LeverRequireRelease",
-            "LeverReadyLow_s",
             "MaxTrials",
         )
         params = self.get_current_parameters()
@@ -1053,10 +1034,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "hit_threshold_percent": self.parse_float_value(params["HIT"], 50),
             "hit_threshold_s": self.get_hit_threshold_s(),
             "threshold_v": threshold,
-            "lever_ready_threshold": params["LeverReadyThreshold"],
             "lever_hold_time_s": self.parse_float_value(params["LeverHoldTime_s"], 1),
             "lever_require_release": params["LeverRequireRelease"],
-            "lever_ready_low_s": params["LeverReadyLow_s"],
             "iti_s": iti,
             "iti_rand_min_s": params["ITIrandMin_s"],
             "iti_rand_max_s": params["ITIrandMax_s"],
@@ -1174,18 +1153,10 @@ class BehaviorAcquisitionApp(tk.Tk):
                     self.finish_active_lever_trial(self.active_lever_low_start_s, success=success)
             return
 
-        self.update_lever_trial_arming(sample_time_s, value)
-
         if not crossed_up:
             return
 
         if sample_time_s < self.next_trial_allowed_time_s:
-            return
-
-        if not self.lever_ready_for_new_trial:
-            if not self.lever_not_ready_logged:
-                self.plot_queue.put(("log", "Lever press ignored: lever was not reset below threshold after ITI."))
-                self.lever_not_ready_logged = True
             return
 
         max_trials = max(0, self.parse_int(self.max_trials, 0))
@@ -1201,23 +1172,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.last_trigger_time = sample_time_s
         self.plot_queue.put(("log", f"Lever crossed {threshold:g} V. Trial {self.trial_index} started; hold for {self.get_lever_hold_time_s():g} s."))
         self.evaluate_active_lever_trial(sample_time_s)
-
-    def update_lever_trial_arming(self, sample_time_s, value):
-        if sample_time_s < self.next_trial_allowed_time_s:
-            self.lever_ready_for_new_trial = False
-            self.lever_ready_low_start_s = None
-            self.lever_not_ready_logged = False
-            return
-        if value >= self.get_lever_ready_threshold_v():
-            self.lever_ready_for_new_trial = False
-            self.lever_ready_low_start_s = None
-            return
-        if self.lever_ready_low_start_s is None:
-            self.lever_ready_low_start_s = sample_time_s
-            return
-        if sample_time_s - self.lever_ready_low_start_s >= self.get_lever_ready_low_s():
-            self.lever_ready_for_new_trial = True
-            self.lever_not_ready_logged = False
 
     def update_active_dmts_trial(self, sample_time_s, is_high, crossed_up, crossed_down):
         if not self.is_lick_trigger() and not self.active_dmts_scored:
@@ -1361,9 +1315,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_next_sound_time_s = trigger_time_s
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
-        self.lever_ready_for_new_trial = False
-        self.lever_ready_low_start_s = None
-        self.lever_not_ready_logged = False
         self.next_trial_allowed_time_s = trigger_time_s + iti_s
         self.start_trial_state_interval(trigger_time_s)
 
@@ -1382,12 +1333,6 @@ class BehaviorAcquisitionApp(tk.Tk):
 
     def get_lever_hold_time_s(self):
         return max(0.0, self.parse_float(self.lever_hold_time_s, 1))
-
-    def get_lever_ready_low_s(self):
-        return max(0.0, self.parse_float(self.lever_ready_low_s, 0.2))
-
-    def get_lever_ready_threshold_v(self):
-        return self.parse_float(self.lever_ready_threshold_v, self.parse_float(self.threshold_v, 1))
 
     def get_lever_release_debounce_s(self):
         return 0.05
@@ -1703,9 +1648,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_next_sound_time_s = None
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
-        self.lever_ready_for_new_trial = False
-        self.lever_ready_low_start_s = None
-        self.lever_not_ready_logged = False
         self.active_dmts_sample_sound_id = 1
         self.active_dmts_test_sound_id = 2
         self.active_dmts_test_sound_time_s = None
@@ -2140,9 +2082,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("TaskType", params["TaskType"]),
             ("TriggerType", params["TriggerTypeDropDown"]),
             ("Threshold", params["LeverThreshold"]),
-            ("LeverReadyThreshold", params["LeverReadyThreshold"]),
             ("LeverRequireRelease", params["LeverRequireRelease"]),
-            ("LeverReadyLow_s", params["LeverReadyLow_s"]),
             ("SampleSoundId", params["SampleSoundId"]),
             ("TestSoundId", params["TestSoundId"]),
             ("Delay_s", params["Delay_s"]),
