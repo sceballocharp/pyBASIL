@@ -114,8 +114,13 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_id = 2
         self.active_dmts_test_sound_time_s = None
         self.active_dmts_response_start_s = None
+        self.active_dmts_response_end_s = None
+        self.active_dmts_reward_start_s = None
+        self.active_dmts_response_evaluated = False
+        self.active_dmts_response_met = False
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
+        self.active_dmts_scored = False
         self.sim_next_pulse_start_s = 0.0
         self.sim_pulse_end_s = -1.0
         self.results_window = None
@@ -198,6 +203,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.auto_scale = tk.BooleanVar(value=False)
         self.ai_terminal_config = tk.StringVar(value="RSE")
         self.subtract_baseline = tk.BooleanVar(value=False)
+        self.left_y_min = tk.StringVar(value="-1")
+        self.left_y_max = tk.StringVar(value="5")
+        self.right_y_min = tk.StringVar(value="-1")
+        self.right_y_max = tk.StringVar(value="5")
         self._entry(acq, 0, "Device", self.device, width=9)
         self._entry(acq, 2, "Channels", self.channels, width=16)
         self._entry(acq, 4, "Rate Hz", self.rate_hz, width=9)
@@ -213,6 +222,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         ).grid(row=0, column=11)
         ttk.Checkbutton(acq, text="Auto scale", variable=self.auto_scale).grid(row=0, column=12, padx=10)
         ttk.Checkbutton(acq, text="Subtract baseline", variable=self.subtract_baseline).grid(row=0, column=13, padx=10)
+        self._entry(acq, 0, "Left ymin", self.left_y_min, width=7, row=1)
+        self._entry(acq, 2, "Left ymax", self.left_y_max, width=7, row=1)
+        self._entry(acq, 4, "Right ymin", self.right_y_min, width=7, row=1)
+        self._entry(acq, 6, "Right ymax", self.right_y_max, width=7, row=1)
 
         trig = ttk.LabelFrame(root, text="Trigger And Sound")
         trig.grid(row=3, column=0, sticky="ew", pady=(0, 6))
@@ -617,8 +630,13 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_id = 2
         self.active_dmts_test_sound_time_s = None
         self.active_dmts_response_start_s = None
+        self.active_dmts_response_end_s = None
+        self.active_dmts_reward_start_s = None
+        self.active_dmts_response_evaluated = False
+        self.active_dmts_response_met = False
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
+        self.active_dmts_scored = False
         self.sim_next_pulse_start_s = 0.0
         self.sim_pulse_end_s = -1.0
         self.current_trial_var.set("0")
@@ -767,7 +785,10 @@ class BehaviorAcquisitionApp(tk.Tk):
                 continue
 
             if self.active_trial_index is not None and self.active_trial_end_s is not None and sample_time_s >= self.active_trial_end_s:
-                self.finish_active_trial(self.active_trial_end_s)
+                if self.is_dmts_task():
+                    self.finish_active_dmts_timeline(self.active_trial_end_s)
+                else:
+                    self.finish_active_trial(self.active_trial_end_s)
 
             is_high = value >= threshold
             crossed_up = is_high and not self.irfork_was_high
@@ -1046,10 +1067,14 @@ class BehaviorAcquisitionApp(tk.Tk):
         sound_duration_s = max(0.0, self.parse_float(self.sound_duration_s, 0))
         delay_s = max(0.0, self.parse_float(self.delay_s, 0))
         response_window_s = max(0.0, self.parse_float(self.response_window_s, 2))
+        reward_delay_s = max(0.0, self.parse_float(self.reward_delay_s, 0))
+        reward_duration_s = max(0.0, self.parse_float(self.pulse_ms, 50) / 1000.0)
         self.active_trial_index = self.trial_index
         self.active_trial_start_s = trigger_time_s
         self.active_dmts_response_start_s = trigger_time_s + sound_duration_s + delay_s + sound_duration_s
-        self.active_trial_end_s = self.active_dmts_response_start_s + response_window_s
+        self.active_dmts_response_end_s = self.active_dmts_response_start_s + response_window_s
+        self.active_dmts_reward_start_s = self.active_dmts_response_end_s + reward_delay_s
+        self.active_trial_end_s = self.active_dmts_reward_start_s + reward_duration_s
         self.active_high_start_s = None
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
@@ -1059,8 +1084,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_sample_sound_id = max(1, self.parse_int(self.sample_sound_id, 1))
         self.active_dmts_test_sound_id = max(1, self.parse_int(self.test_sound_id, 2))
         self.active_dmts_test_sound_time_s = trigger_time_s + sound_duration_s + delay_s
+        self.active_dmts_response_evaluated = False
+        self.active_dmts_response_met = False
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
+        self.active_dmts_scored = False
         self.next_trial_allowed_time_s = trigger_time_s + iti_s
         self.start_trial_state_interval(trigger_time_s)
         if self.play_sound_on_crossing.get():
@@ -1122,6 +1150,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.evaluate_active_lever_trial(sample_time_s)
 
     def update_active_dmts_trial(self, sample_time_s, is_high, crossed_up, crossed_down):
+        if crossed_down and not self.is_lick_trigger() and not self.active_dmts_scored:
+            self.finish_active_dmts_miss(sample_time_s, "fork event ended")
+            return
+
         if self.active_dmts_test_sound_time_s is not None and not self.active_dmts_test_sound_played:
             if sample_time_s >= self.active_dmts_test_sound_time_s:
                 if self.play_sound_on_crossing.get():
@@ -1136,6 +1168,14 @@ class BehaviorAcquisitionApp(tk.Tk):
         if response_start_s is None or sample_time_s < response_start_s:
             return
 
+        response_end_s = self.active_dmts_response_end_s
+        if response_end_s is not None and sample_time_s >= response_end_s:
+            self.finish_active_dmts_response(response_end_s)
+            reward_start_s = self.active_dmts_reward_start_s
+            if reward_start_s is not None and sample_time_s >= reward_start_s:
+                self.finish_active_dmts_reward_period(reward_start_s)
+            return
+
         if not self.active_dmts_response_started:
             self.active_dmts_response_started = True
             if is_high and not self.is_lick_trigger():
@@ -1148,7 +1188,84 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.active_high_start_s = sample_time_s
         elif crossed_down:
             self.add_active_high_interval(sample_time_s)
-        self.evaluate_active_trial(sample_time_s)
+
+    def finish_active_dmts_response(self, response_end_s):
+        if self.active_dmts_response_evaluated:
+            return
+        row = self.get_active_trial_row()
+        if row is None:
+            self.active_dmts_response_evaluated = True
+            return
+        self.active_dmts_response_evaluated = True
+        if self.is_lick_trigger():
+            lick_count = self.active_lick_count
+            row["lick_count"] = lick_count
+            response_met = lick_count >= self.get_min_lick_count()
+            measure = float(lick_count)
+            log_measure = f"{lick_count} licks"
+        else:
+            if self.active_high_start_s is not None:
+                self.add_active_high_interval(response_end_s)
+            measure = self.active_crossing_total_s
+            row["crossing_duration_s"] = f"{measure:.6f}"
+            response_met = measure >= self.get_hit_threshold_s()
+            log_measure = f"{measure:.3f} s total IR crossing"
+        self.active_dmts_response_met = response_met
+        self.write_trial_log()
+        self.plot_queue.put(("log", f"DMTS trial {row['trial']} response window ended with {log_measure}. Criterion met={int(response_met)}."))
+
+    def finish_active_dmts_reward_period(self, reward_start_s):
+        if self.active_dmts_scored:
+            return
+        row = self.get_active_trial_row()
+        if row is None:
+            self.clear_active_trial()
+            return
+        if not self.active_dmts_response_evaluated:
+            self.finish_active_dmts_response(self.active_dmts_response_end_s or reward_start_s)
+        self.active_dmts_scored = True
+        same_sound = self.active_dmts_sample_sound_id == self.active_dmts_test_sound_id
+        hit = bool(same_sound and self.active_dmts_response_met)
+        row["HIT"] = int(hit)
+        row["MISS"] = int(not hit)
+        row["CR"] = 0
+        row["FA"] = 0
+        row["ResultType"] = "HIT" if hit else "MISS"
+        if hit:
+            measure = float(row.get("lick_count") or self.active_crossing_total_s)
+            self.maybe_send_go_reward(row, measure, start_s=reward_start_s)
+        self.write_trial_log()
+        self.plot_queue.put(("results", None))
+        self.plot_queue.put(("log", f"DMTS trial {row['trial']} reached reward period. Same sound={int(same_sound)}. Result={row['ResultType']}."))
+
+    def finish_active_dmts_miss(self, trial_end_s, reason):
+        row = self.get_active_trial_row()
+        if row is None:
+            self.clear_active_trial()
+            return
+        self.active_dmts_scored = True
+        if self.active_high_start_s is not None:
+            self.add_active_high_interval(trial_end_s)
+        row["crossing_duration_s"] = f"{self.active_crossing_total_s:.6f}"
+        row["HIT"] = 0
+        row["MISS"] = 1
+        row["CR"] = 0
+        row["FA"] = 0
+        row["ResultType"] = "MISS"
+        self.write_trial_log()
+        self.plot_queue.put(("results", None))
+        self.plot_queue.put(("log", f"DMTS trial {row['trial']} stopped: {reason}. Result=MISS."))
+        self.end_trial_state_interval(trial_end_s)
+        self.clear_active_trial()
+
+    def finish_active_dmts_timeline(self, trial_end_s):
+        if not self.active_dmts_scored:
+            reward_start_s = self.active_dmts_reward_start_s or trial_end_s
+            self.finish_active_dmts_reward_period(reward_start_s)
+        self.write_trial_log()
+        self.plot_queue.put(("results", None))
+        self.end_trial_state_interval(trial_end_s)
+        self.clear_active_trial()
 
     def start_active_lever_trial(self, trigger_time_s, iti_s):
         self.active_trial_index = self.trial_index
@@ -1479,8 +1596,13 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_id = 2
         self.active_dmts_test_sound_time_s = None
         self.active_dmts_response_start_s = None
+        self.active_dmts_response_end_s = None
+        self.active_dmts_reward_start_s = None
+        self.active_dmts_response_evaluated = False
+        self.active_dmts_response_met = False
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
+        self.active_dmts_scored = False
 
     def classify_trial_sound(self, sound_id):
         if self.is_lever_task():
@@ -2437,6 +2559,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         values = [value - ir_baseline for value in values]
         min_t, max_t = times[0], times[-1] if times[-1] != times[0] else times[0] + 1
         min_v, max_v = min(values), max(values)
+        overlay_min_v, overlay_max_v = 0.0, 1.0
         visible_trigger = any(end_s >= min_t and start_s <= max_t for start_s, end_s in self.trigger_pulses)
         visible_sound = any(
             start_s + len(sound_values) / sound_fs >= min_t and start_s <= max_t
@@ -2447,25 +2570,34 @@ class BehaviorAcquisitionApp(tk.Tk):
             for start_s, end_s in self.trial_state_intervals
         )
         if visible_trigger:
-            min_v = min(min_v, 0.0)
-            max_v = max(max_v, 5.0)
+            overlay_min_v = min(overlay_min_v, 0.0)
+            overlay_max_v = max(overlay_max_v, 5.0)
         if visible_trial_state:
-            min_v = min(min_v, 0.0)
-            max_v = max(max_v, 1.0)
+            overlay_min_v = min(overlay_min_v, 0.0)
+            overlay_max_v = max(overlay_max_v, 1.0)
         if visible_sound:
             for sound_output in self.sound_outputs:
                 start_s, sound_fs, sound_values = sound_output[:3]
                 sound_end = start_s + len(sound_values) / sound_fs
                 if sound_end < min_t or start_s > max_t or not sound_values:
                     continue
-                min_v = min(min_v, min(sound_values))
-                max_v = max(max_v, max(sound_values))
+                overlay_min_v = min(overlay_min_v, min(sound_values))
+                overlay_max_v = max(overlay_max_v, max(sound_values))
         if not self.auto_scale.get():
-            min_v, max_v = -1.0, 5.0
+            min_v = self.parse_float(self.left_y_min, -1.0)
+            max_v = self.parse_float(self.left_y_max, 5.0)
+            overlay_min_v = self.parse_float(self.right_y_min, -1.0)
+            overlay_max_v = self.parse_float(self.right_y_max, 5.0)
+            if max_v < min_v:
+                min_v, max_v = max_v, min_v
+            if overlay_max_v < overlay_min_v:
+                overlay_min_v, overlay_max_v = overlay_max_v, overlay_min_v
         if max_v == min_v:
             max_v = min_v + 1
+        if overlay_max_v == overlay_min_v:
+            overlay_max_v = overlay_min_v + 1
         left_pad = 42
-        right_pad = 10
+        right_pad = 52
         top_pad = 12
         bottom_pad = 34
         plot_width = max(1, width - left_pad - right_pad)
@@ -2479,6 +2611,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.draw_active_trial_shading(min_t, max_t, left_pad, top_pad, plot_width, x_axis_y)
         self.plot_canvas.create_line(left_pad, x_axis_y, width - right_pad, x_axis_y, fill="#cccccc")
         self.plot_canvas.create_line(left_pad, top_pad, left_pad, x_axis_y, fill="#cccccc")
+        right_axis_x = left_pad + plot_width
+        self.plot_canvas.create_line(right_axis_x, top_pad, right_axis_x, x_axis_y, fill="#cccccc")
         first_second = math.ceil(min_t)
         last_second = math.floor(max_t)
         for second in range(first_second, last_second + 1):
@@ -2490,17 +2624,22 @@ class BehaviorAcquisitionApp(tk.Tk):
             tick_t = min_t + frac * (max_t - min_t)
             self.plot_canvas.create_line(tick_x, x_axis_y, tick_x, x_axis_y + 4, fill="#999999")
             self.plot_canvas.create_text(tick_x, x_axis_y + 16, text=f"{tick_t:.1f}", fill="#555555")
+            left_tick_v = min_v + (1.0 - frac) * (max_v - min_v)
+            right_tick_v = overlay_min_v + (1.0 - frac) * (overlay_max_v - overlay_min_v)
+            tick_y = top_pad + frac * plot_height
+            self.plot_canvas.create_text(left_pad - 5, tick_y, text=f"{left_tick_v:.1f}", anchor="e", fill="#1f77b4", font=("Segoe UI", 8))
+            self.plot_canvas.create_text(right_axis_x + 5, tick_y, text=f"{right_tick_v:.1f}", anchor="w", fill="#555555", font=("Segoe UI", 8))
         self.plot_canvas.create_text(width / 2, height - 6, text="Time (s)", fill="#555555")
-        self.draw_trial_state_trace(min_t, max_t, min_v, max_v, left_pad, plot_width, plot_height, x_axis_y)
-        self.draw_trigger_trace(min_t, max_t, min_v, max_v, left_pad, top_pad, plot_width, plot_height, x_axis_y)
-        self.draw_sound_trace(min_t, max_t, min_v, max_v, left_pad, plot_width, plot_height, x_axis_y)
+        self.draw_trial_state_trace(min_t, max_t, overlay_min_v, overlay_max_v, left_pad, plot_width, plot_height, x_axis_y)
+        self.draw_trigger_trace(min_t, max_t, overlay_min_v, overlay_max_v, left_pad, top_pad, plot_width, plot_height, x_axis_y)
+        self.draw_sound_trace(min_t, max_t, overlay_min_v, overlay_max_v, left_pad, plot_width, plot_height, x_axis_y)
         if len(points) >= 4:
             self.plot_canvas.create_line(*points, fill="#1f77b4", width=2)
         self.plot_canvas.create_text(
             8,
             8,
             anchor="nw",
-            text=f"{min_v:.2f} to {max_v:.2f} V, baseline {ir_baseline:.2f} V",
+            text=f"Left {min_v:.2f} to {max_v:.2f} V, right {overlay_min_v:.2f} to {overlay_max_v:.2f}, baseline {ir_baseline:.2f} V",
             fill="#555555",
         )
         self.plot_canvas.create_text(width - 120, 10, anchor="nw", text="IRFork", fill="#1f77b4")
