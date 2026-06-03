@@ -96,6 +96,8 @@ Minlickcount=<count>
 
 A response is scored when the signal crosses above `Lickthreshold` at least `Minlickcount` times during the response window.
 
+Classic Go/No-Go trials also require a clean reset between trials: after ITI, the trigger signal must be observed below the active threshold before the next upward crossing can start a new trial. If ITI ends while the signal is still above threshold, no trial starts until the signal goes low and crosses upward again.
+
 ## Lever
 
 Saved with:
@@ -128,6 +130,8 @@ TaskType=DMTS
 ```
 
 DMTS means delayed match to sample. The protocol generator can create these parameters and preview the timing. `pyBEHAVIOR_v5.py` now has an initial runtime structure for one sample/test pair: sample sound, delay, test sound, response window, and HIT/MISS scoring from either lick count or IR beam crossing duration. The current DMTS HIT rule is for matching sample/test sounds: if `SampleSoundId` and `TestSoundId` are the same, the response criterion is met, and the animal remains in the IR fork until the reward period, the trial is logged as a HIT. For IRFork-triggered DMTS, if the fork event ends before the reward-period decision, the trial stops immediately and is logged as a MISS.
+
+DMTS trial starts use the same clean-reset rule as Classic Go/No-Go: after ITI, the trigger signal must be observed below threshold before a new upward crossing can start the next trial.
 
 ### Task
 

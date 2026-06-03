@@ -111,6 +111,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
         self.lever_reset_seen_for_new_trial = False
+        self.trigger_reset_seen_for_new_trial = False
         self.lever_pending_start_s = None
         self.lever_sound_gap_s = 0.5
         self.active_dmts_sample_sound_id = 1
@@ -651,6 +652,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
         self.lever_reset_seen_for_new_trial = False
+        self.trigger_reset_seen_for_new_trial = False
         self.lever_pending_start_s = None
         self.lever_sound_gap_s = 0.5
         self.active_dmts_sample_sound_id = 1
@@ -837,10 +839,17 @@ class BehaviorAcquisitionApp(tk.Tk):
                     self.evaluate_active_trial(sample_time_s)
                 continue
 
-            if not crossed_up:
+            if sample_time_s < self.next_trial_allowed_time_s:
+                self.trigger_reset_seen_for_new_trial = False
                 continue
 
-            if sample_time_s < self.next_trial_allowed_time_s:
+            if not is_high:
+                self.trigger_reset_seen_for_new_trial = True
+
+            if not self.trigger_reset_seen_for_new_trial:
+                continue
+
+            if not crossed_up:
                 continue
 
             max_trials = max(0, self.parse_int(self.max_trials, 0))
@@ -1101,6 +1110,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_trial_base_iti_s = iti_s
         self.active_trial_extra_timeout_s = 0.0
         self.next_trial_allowed_time_s = trigger_time_s + iti_s
+        self.trigger_reset_seen_for_new_trial = False
         self.start_trial_state_interval(trigger_time_s)
 
     def start_active_dmts_trial(self, trigger_time_s, iti_s):
@@ -1131,6 +1141,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
         self.next_trial_allowed_time_s = trigger_time_s + iti_s
+        self.trigger_reset_seen_for_new_trial = False
         self.start_trial_state_interval(trigger_time_s)
         if self.play_sound_on_crossing.get():
             self.play_loaded_sound(sound_id=self.active_dmts_sample_sound_id, from_worker=True, start_s=trigger_time_s)
@@ -1350,6 +1361,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lever_low_start_s = None
         self.active_lever_release_armed = False
         self.lever_reset_seen_for_new_trial = False
+        self.trigger_reset_seen_for_new_trial = False
         self.lever_pending_start_s = None
         self.next_trial_allowed_time_s = trigger_time_s + iti_s
         self.start_trial_state_interval(trigger_time_s)
@@ -2746,6 +2758,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.plot_canvas.create_text(width - 120, 26, anchor="nw", text="Trigger output", fill="#d97904")
         self.plot_canvas.create_text(width - 120, 42, anchor="nw", text="Sound output", fill="#2ca02c")
         self.plot_canvas.create_text(width - 120, 58, anchor="nw", text="Trial state", fill="#6f42c1")
+        self.draw_since_last_trial_timer(max_t, width)
 
     def draw_iti_shading(self, min_t, max_t, left_pad, top_pad, plot_width, x_axis_y):
         if self.last_trigger_time <= -1e11 or self.next_trial_allowed_time_s <= self.last_trigger_time:
@@ -2763,6 +2776,21 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.plot_canvas.create_line(x0, top_pad, x0, x_axis_y, fill="#c7b76a", dash=(4, 3))
         if self.next_trial_allowed_time_s <= max_t:
             self.plot_canvas.create_line(x1, top_pad, x1, x_axis_y, fill="#c7b76a", dash=(4, 3))
+
+    def draw_since_last_trial_timer(self, current_time_s, width):
+        if self.last_trigger_time <= -1e11:
+            text = "Since last trial: --"
+        else:
+            elapsed_s = max(0.0, current_time_s - self.last_trigger_time)
+            text = f"Since last trial: {elapsed_s:.1f} s"
+        self.plot_canvas.create_text(
+            width - 8,
+            78,
+            anchor="ne",
+            text=text,
+            fill="#333333",
+            font=("Segoe UI", 10, "bold"),
+        )
 
     def draw_trial_state_trace(self, min_t, max_t, min_v, max_v, left_pad, plot_width, plot_height, x_axis_y):
         if not self.trial_state_intervals:
