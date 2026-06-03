@@ -111,11 +111,13 @@ TaskType=Lever
 | `GoSoundId` | GO sound ID | Sound ID triggered when the lever threshold is crossed. |
 | `SoundLevel` | Sound level | Multiplicative gain for sound playback. |
 | `LeverHoldTime_s` | Lever hold time s | Time the lever signal must remain above threshold before reward logic is triggered. |
-| `LeverRequireRelease` | Require release | Optional second-level lever behavior. `0` rewards once hold time is reached; `1` requires release within `LeverHoldTime_s +/- 0.25 s`. Release before or after that range is a MISS. |
+| `LeverStartDebounce_s` | Start debounce s | Time a new upward crossing must remain above `LeverThreshold` before the trial is accepted. Default is `0.1` s. |
+| `LeverRequireRelease` | Require release | Optional second-level lever behavior. `0` rewards once hold time is reached; `1` rewards when the animal releases after crossing `LeverHoldTime_s`. Releasing before `LeverHoldTime_s` is a MISS. |
+| `LeverReleaseWindow_s` | Release window s | Reserved lever tolerance parameter. Currently saved/imported for compatibility but not used while release rewards are based only on `hold_s >= LeverHoldTime_s`. |
 | `Rewardduration_ms` | Reward duration ms | Water valve/trigger pulse duration in ms. |
 | `RewardGo` | RewardGo Prob | Probability that a successful lever response is rewarded, from `0` to `1`. |
 
-Lever trials also require a clean reset between trials: after ITI, the lever signal must be observed below `LeverThreshold` before the next upward crossing can start a new trial. A new lever press must then remain above `LeverThreshold` for 100 ms before the trial is accepted, preventing single-sample noise from starting trials.
+Lever trials also require a clean reset between trials: after ITI, the lever signal must be observed below `LeverThreshold` before the next upward crossing can start a new trial. A new lever press must then remain above `LeverThreshold` for `LeverStartDebounce_s` before the trial is accepted, preventing single-sample noise from starting trials.
 
 ## DMTS
 

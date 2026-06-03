@@ -54,7 +54,10 @@ PARAMETERS = [
     Parameter("LeverThreshold", "Lever threshold V", "1", "Lever", "float"),
     Parameter("LeverGoSoundId", "GO sound ID", "1", "Lever", "int"),
     Parameter("LeverSoundLevel", "Sound level", "1", "Lever", "float"),
+    Parameter("LeverRequireRelease", "Require release", "0", "Lever", "choice", ("0", "1")),
     Parameter("LeverHoldTime_s", "Lever hold time s", "1", "LeverTiming", "float"),
+    Parameter("LeverStartDebounce_s", "Start debounce s", "0.1", "LeverTiming", "float"),
+    Parameter("LeverReleaseWindow_s", "Release window s", "0.25", "LeverTiming", "float"),
     Parameter("LeverRewardduration_ms", "Reward duration ms", "40", "LeverOutcome", "float"),
     Parameter("LeverRewardGo", "RewardGo Prob", "1", "LeverOutcome", "float"),
     Parameter("DMTSTaskType", "Task type", "DMTS", "DMTS"),
@@ -399,6 +402,10 @@ class ProtocolGenerator(tk.Tk):
                 errors.append("Lever threshold V must be greater than 0.")
             if self.parse_float("LeverHoldTime_s", 0) <= 0:
                 errors.append("Lever hold time s must be greater than 0.")
+            if self.parse_float("LeverStartDebounce_s", -1) < 0:
+                errors.append("Start debounce s must be positive or 0.")
+            if self.parse_float("LeverReleaseWindow_s", -1) < 0:
+                errors.append("Release window s must be positive or 0.")
             if not 0 <= self.parse_float("LeverRewardGo", -1) <= 1:
                 errors.append("RewardGo Prob must be between 0 and 1.")
             return errors
@@ -490,6 +497,7 @@ class ProtocolGenerator(tk.Tk):
         margin_left, margin_right, margin_top, row_gap = 132, 28, 46, 62
         crossing_time = 1.0
         hold = max(0, self.parse_float("LeverHoldTime_s", 1))
+        start_debounce = max(0, self.parse_float("LeverStartDebounce_s", 0.1))
         reward_s = max(0, self.parse_float("LeverRewardduration_ms", 40) / 1000)
         reward_start = crossing_time + hold
         total_s = max(reward_start + reward_s, 2.0)
@@ -506,12 +514,20 @@ class ProtocolGenerator(tk.Tk):
         canvas.create_line(margin_left, signal_y, width - margin_right, signal_y, fill="#d62728", dash=(4, 3))
         self.draw_span(margin_left, sound_y, scale, crossing_time, crossing_time + 0.05, "#1f77b4", "sound")
         self.draw_span(margin_left, hold_y, scale, crossing_time, reward_start, "#9467bd", "above threshold")
+        self.draw_span(margin_left, hold_y, scale, crossing_time, crossing_time + start_debounce, "#8c564b", "accepted")
         self.draw_double_arrow(margin_left, hold_y + 18, scale, crossing_time, reward_start, "#9467bd", "LeverHoldTime_s")
+        if self.variables["LeverRequireRelease"].get() == "1":
+            self.draw_double_arrow(margin_left, reward_y + 18, scale, reward_start, total_s, "#d62728", "release after hold")
         self.draw_span(margin_left, reward_y, scale, reward_start, reward_start + reward_s, "#2ca02c", "reward")
         x = margin_left + crossing_time * scale
         canvas.create_line(x, margin_top - 24, x, reward_y + 18, fill="#333333", dash=(4, 3))
         canvas.create_text(x, margin_top - 28, text="threshold crossed", anchor="s")
-        self.summary_var.set(f"Lever threshold hold {hold:.3g} s before reward")
+        summary = f"Lever press accepted after {start_debounce:.3g} s above threshold; hold {hold:.3g} s"
+        if self.variables["LeverRequireRelease"].get() == "1":
+            summary += ", reward on release after target hold"
+        else:
+            summary += " before reward"
+        self.summary_var.set(summary)
 
     def draw_dmts_preview(self):
         canvas = self.canvas

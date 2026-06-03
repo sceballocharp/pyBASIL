@@ -309,6 +309,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.min_lick_count = tk.StringVar(value="")
         self.lick_threshold = tk.StringVar(value="")
         self.lever_hold_time_s = tk.StringVar(value="1")
+        self.lever_start_debounce_s = tk.StringVar(value="0.1")
+        self.lever_release_window_s = tk.StringVar(value="0.25")
         self.sample_sound_id = tk.StringVar(value="1")
         self.test_sound_id = tk.StringVar(value="2")
         self.dmts_fork_grace_s = tk.StringVar(value="0.1")
@@ -331,6 +333,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.lick_threshold_widgets = self._entry(trial, 2, "Lick thresh", self.lick_threshold, width=6, row=3)
         self.hit_threshold_widgets = self._entry(trial, 2, "Resp. hold %", self.hit_threshold_s, width=6, row=3)
         self.lever_hold_widgets = self._entry(trial, 0, "Lever hold s", self.lever_hold_time_s, width=6, row=3)
+        self.lever_start_debounce_widgets = self._entry(trial, 0, "Start debounce s", self.lever_start_debounce_s, width=6, row=4)
+        self.lever_release_window_widgets = self._entry(trial, 2, "Release window s", self.lever_release_window_s, width=6, row=4)
         self.sample_sound_widgets = self._entry(trial, 0, "Sample ID", self.sample_sound_id, width=6, row=4)
         self.test_sound_widgets = self._entry(trial, 2, "Test ID", self.test_sound_id, width=6, row=4)
         self.dmts_fork_grace_widgets = self._entry(trial, 4, "Fork grace s", self.dmts_fork_grace_s, width=6, row=4)
@@ -374,6 +378,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.set_widget_pair_visible(self.lick_threshold_widgets, not is_lever and is_lick, row=3, col=2)
         self.set_widget_pair_visible(self.hit_threshold_widgets, not is_lever and not is_lick, row=3, col=2)
         self.set_widget_pair_visible(self.lever_hold_widgets, is_lever, row=3, col=0)
+        self.set_widget_pair_visible(self.lever_start_debounce_widgets, is_lever, row=4, col=0)
+        self.set_widget_pair_visible(self.lever_release_window_widgets, is_lever, row=4, col=2)
         if is_lever:
             self.lever_release_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
         else:
@@ -500,6 +506,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Lickthreshold": self.lick_threshold,
             "LeverThreshold": self.threshold_v,
             "LeverHoldTime_s": self.lever_hold_time_s,
+            "LeverStartDebounce_s": self.lever_start_debounce_s,
+            "LeverReleaseWindow_s": self.lever_release_window_s,
             "LeverRequireRelease": self.lever_require_release,
             "SampleSoundId": self.sample_sound_id,
             "TestSoundId": self.test_sound_id,
@@ -941,6 +949,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Lickthreshold": self.lick_threshold.get(),
             "LeverThreshold": self.threshold_v.get(),
             "LeverHoldTime_s": self.lever_hold_time_s.get(),
+            "LeverStartDebounce_s": self.lever_start_debounce_s.get(),
+            "LeverReleaseWindow_s": self.lever_release_window_s.get(),
             "LeverRequireRelease": int(self.lever_require_release.get()),
             "MaxTrials": self.max_trials.get(),
             "SampleSoundId": self.sample_sound_id.get(),
@@ -994,6 +1004,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Lickthreshold",
             "LeverThreshold",
             "LeverHoldTime_s",
+            "LeverStartDebounce_s",
+            "LeverReleaseWindow_s",
             "LeverRequireRelease",
             "MaxTrials",
         )
@@ -1039,6 +1051,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "hit_threshold_s": self.get_hit_threshold_s(),
             "threshold_v": threshold,
             "lever_hold_time_s": self.parse_float_value(params["LeverHoldTime_s"], 1),
+            "lever_start_debounce_s": self.parse_float_value(params["LeverStartDebounce_s"], 0.1),
+            "lever_release_window_s": self.parse_float_value(params["LeverReleaseWindow_s"], 0.25),
             "lever_require_release": params["LeverRequireRelease"],
             "iti_s": iti,
             "iti_rand_min_s": params["ITIrandMin_s"],
@@ -1360,7 +1374,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         return 0.05
 
     def get_lever_start_debounce_s(self):
-        return 0.1
+        return max(0.0, self.parse_float(self.lever_start_debounce_s, 0.1))
 
     def is_lever_release_success(self, release_time_s):
         if not self.lever_require_release.get():
@@ -1369,11 +1383,10 @@ class BehaviorAcquisitionApp(tk.Tk):
             return False
         hold_s = max(0.0, release_time_s - self.active_high_start_s)
         target_s = self.get_lever_hold_time_s()
-        release_window_s = self.get_lever_release_window_s()
-        return target_s - release_window_s <= hold_s <= target_s + release_window_s
+        return hold_s >= target_s
 
     def get_lever_release_window_s(self):
-        return 0.25
+        return max(0.0, self.parse_float(self.lever_release_window_s, 0.25))
 
     def play_next_lever_sound(self, sample_time_s):
         if not self.play_sound_on_crossing.get():
@@ -1402,8 +1415,6 @@ class BehaviorAcquisitionApp(tk.Tk):
                 if not self.active_lever_release_armed:
                     self.active_lever_release_armed = True
                     self.plot_queue.put(("log", f"Lever trial {row['trial']} target hold reached; release now to trigger reward."))
-                if hold_s > self.get_lever_hold_time_s() + self.get_lever_release_window_s():
-                    self.finish_active_lever_trial(sample_time_s, success=False)
             else:
                 row["HIT"] = 1
                 row["MISS"] = 0
@@ -2109,6 +2120,9 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("TaskType", params["TaskType"]),
             ("TriggerType", params["TriggerTypeDropDown"]),
             ("Threshold", params["LeverThreshold"]),
+            ("LeverHoldTime_s", params["LeverHoldTime_s"]),
+            ("LeverStartDebounce_s", params["LeverStartDebounce_s"]),
+            ("LeverReleaseWindow_s", params["LeverReleaseWindow_s"]),
             ("LeverRequireRelease", params["LeverRequireRelease"]),
             ("SampleSoundId", params["SampleSoundId"]),
             ("TestSoundId", params["TestSoundId"]),
