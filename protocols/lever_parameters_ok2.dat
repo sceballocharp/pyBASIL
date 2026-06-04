@@ -1,0 +1,16 @@
+UserName=Azul
+MouseId=1
+ProjectName=Chrono
+NICard_filename=C:/Users/Behaviour_4/Documents/Github/pyBEHAVIOR/setup_valves_IRFork.m
+Sound_filename=//helix.pasteur.fr/projects/Bathellierlab/Bathellierlab_gaia/BASIL/BASIL_FAIR/BASILapp/utils/sounds/JulieJ/Chronology/Calib_Pure_Tones_70db_setup4/AllSounds_Corrected.mat
+frec=1000
+bin=0.1
+TriggerTypeDropDown=IRFork
+OuputformatDropDown=NWB
+TaskType=Lever
+LeverThreshold=2.6
+GoSoundId=1
+SoundLevel=1
+LeverHoldTime_s=0.5
+Rewardduration_ms=100
+RewardGo=1
