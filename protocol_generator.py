@@ -63,7 +63,9 @@ PARAMETERS = [
     Parameter("DMTSTaskType", "Task type", "DMTS", "DMTS"),
     Parameter("DMTSMaxTrials", "Max trials", "300", "DMTS", "int"),
     Parameter("DMTSSampleSoundId", "Sample sound ID", "1", "DMTS", "int"),
-    Parameter("DMTSTestSoundId", "Test sound ID", "2", "DMTS", "int"),
+    Parameter("DMTSTestSoundId", "Test sound ID", "1", "DMTS", "int"),
+    Parameter("DMTSRandomMatchTrials", "Random match trials", "0", "DMTS", "choice", ("0", "1")),
+    Parameter("DMTSSoundIds", "Sound IDs", "1:16", "DMTS"),
     Parameter("DMTSSoundLevel", "Sound level", "1", "DMTS", "float"),
     Parameter("DMTSRandomSeed", "Random seed", "0", "DMTS", "int"),
     Parameter("DMTSITI_s", "ITI", "2", "DMTSTiming", "float"),
@@ -339,6 +341,8 @@ class ProtocolGenerator(tk.Tk):
                 "MaxTrials": "DMTSMaxTrials",
                 "SampleSoundId": "DMTSSampleSoundId",
                 "TestSoundId": "DMTSTestSoundId",
+                "DMTSRandomMatchTrials": "DMTSRandomMatchTrials",
+                "DMTSSoundIds": "DMTSSoundIds",
                 "SoundLevel": "DMTSSoundLevel",
                 "RandomSeed": "DMTSRandomSeed",
                 "ITI_s": "DMTSITI_s",
@@ -414,6 +418,8 @@ class ProtocolGenerator(tk.Tk):
                 errors.append("Sample sound ID must be a positive integer.")
             if self.parse_int("DMTSTestSoundId", 0) < 1:
                 errors.append("Test sound ID must be a positive integer.")
+            if self.variables["DMTSSoundIds"].get().strip() and not self.parse_dmts_sound_ids():
+                errors.append("Sound IDs must use entries such as 1:16 or 1,2,3,4.")
             if self.parse_float("DMTSITI_s", -1) < 0:
                 errors.append("ITI must be positive or 0.")
             iti_min = self.parse_float("DMTSITIrandMin_s", None)
@@ -582,6 +588,8 @@ class ProtocolGenerator(tk.Tk):
             f"sample sound {self.variables['DMTSSampleSoundId'].get()}, "
             f"ITI {iti:.3g}+{iti_min:.3g}-{iti_max:.3g} s, "
             f"delay {delay:.3g} s, test sound {self.variables['DMTSTestSoundId'].get()}, "
+            f"random match {'on' if self.variables['DMTSRandomMatchTrials'].get() == '1' else 'off'} "
+            f"({self.variables['DMTSSoundIds'].get() or 'fixed IDs'}), "
             f"HIT threshold {self.variables['DMTSHITThreshold_percent'].get()}% RW"
         )
 
@@ -651,6 +659,27 @@ class ProtocolGenerator(tk.Tk):
             return default
         return int(value)
 
+    def parse_dmts_sound_ids(self):
+        values = []
+        text = self.variables["DMTSSoundIds"].get().strip()
+        for item in text.replace(";", " ").replace(",", " ").split():
+            if ":" in item or "-" in item:
+                separator = ":" if ":" in item else "-"
+                left, right = item.split(separator, 1)
+                try:
+                    start = int(float(left.strip()))
+                    end = int(float(right.strip()))
+                except Exception:
+                    continue
+                step = 1 if end >= start else -1
+                values.extend(range(start, end + step, step))
+                continue
+            try:
+                values.append(int(float(item)))
+            except Exception:
+                continue
+        return [value for value in values if value > 0]
+
 
 def read_dat(path):
     values = {}
@@ -674,6 +703,8 @@ def write_dat(path, values, parameters):
         "DMTSMaxTrials": "MaxTrials",
         "DMTSSampleSoundId": "SampleSoundId",
         "DMTSTestSoundId": "TestSoundId",
+        "DMTSRandomMatchTrials": "DMTSRandomMatchTrials",
+        "DMTSSoundIds": "DMTSSoundIds",
         "DMTSSoundLevel": "SoundLevel",
         "DMTSRandomSeed": "RandomSeed",
         "DMTSITI_s": "ITI_s",

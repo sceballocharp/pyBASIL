@@ -8,7 +8,7 @@ This document describes the `parameters.dat` fields used by the current protocol
 - `Lever`
 - `DMTS`
 
-`pyBEHAVIOR_v5.py` currently imports and runs Classic Go/No-Go, Lever, and an initial DMTS sample-delay-test structure. DMTS match/non-match trial classes are not yet implemented.
+`pyBEHAVIOR_v5.py` currently imports and runs Classic Go/No-Go, Lever, and an initial DMTS sample-delay-test structure. DMTS match trials can randomly choose same-ID sample/test pairs from a sound ID list such as `1:16`.
 
 ## Common Parameters
 
@@ -129,7 +129,7 @@ Saved with:
 TaskType=DMTS
 ```
 
-DMTS means delayed match to sample. The protocol generator can create these parameters and preview the timing. `pyBEHAVIOR_v5.py` now has an initial runtime structure for one sample/test pair: sample sound, delay, test sound, response window, and HIT/MISS scoring from either lick count or IR beam crossing duration. The current DMTS HIT rule is for matching sample/test sounds: if `SampleSoundId` and `TestSoundId` are the same, the response criterion is met, and the animal remains in the IR fork until the reward period, the trial is logged as a HIT. For IRFork-triggered DMTS, if the fork event ends before the reward-period decision, the trial stops immediately and is logged as a MISS.
+DMTS means delayed match to sample. The protocol generator can create these parameters and preview the timing. `pyBEHAVIOR_v5.py` now has an initial runtime structure for one sample/test pair: sample sound, delay, test sound, response window, and HIT/MISS scoring from either lick count or IR beam crossing duration. When `DMTSRandomMatchTrials` is enabled, the runtime randomly chooses a sound ID from `DMTSSoundIds` at each trial start and uses that same ID for both the sample and test sounds. The checkbox can be changed during live behavior. The current DMTS HIT rule is strict same-ID matching: if `SampleSoundId` and `TestSoundId` for the active trial are the same, the response criterion is met, and the animal remains in the IR fork until the reward period, the trial is logged as a HIT. For IRFork-triggered DMTS, if the fork event ends before the reward-period decision, the trial stops immediately and is logged as a MISS.
 
 DMTS trial starts use the same clean-reset rule as Classic Go/No-Go: after ITI, the trigger signal must be observed below threshold before a new upward crossing can start the next trial.
 
@@ -141,6 +141,8 @@ DMTS trial starts use the same clean-reset rule as Classic Go/No-Go: after ITI, 
 | `MaxTrials` | Max trials | Maximum number of accepted trials. |
 | `SampleSoundId` | Sample sound ID | First/sample sound stimulus. |
 | `TestSoundId` | Test sound ID | Second/test sound stimulus. |
+| `DMTSRandomMatchTrials` | Random match trials | `0` uses fixed `SampleSoundId`/`TestSoundId`; `1` enables the live checkbox mode that randomly chooses same-ID match trials from `DMTSSoundIds`. |
+| `DMTSSoundIds` | Sound IDs | Sound ID list for randomized match trials. `1:16` randomly selects one ID from 1 through 16 and uses it for both sample and test. Comma/space lists such as `1,2,5,9` are also accepted. |
 | `SoundLevel` | Sound level | Multiplicative gain for sound playback. |
 | `RandomSeed` | Random seed | Seed for reproducible trial sequence generation. |
 
@@ -188,4 +190,4 @@ Trial-specific fields such as `trial`, `timestamp`, `sound_id`, `trigger_time_s`
 | --- | --- | --- | --- |
 | Classic Go/No-Go | Yes | Yes | Implemented. |
 | Lever | Yes | Yes | Implemented. |
-| DMTS | Yes | Yes | Initial sample-delay-test structure implemented; match/non-match trial classes are not yet implemented. |
+| DMTS | Yes | Yes | Initial sample-delay-test structure implemented with same-ID matching and optional randomized same-ID sound lists. |
