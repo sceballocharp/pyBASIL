@@ -480,7 +480,7 @@ class ProtocolGenerator(tk.Tk):
         total_s = max(timing["cycle"], 0.1)
         scale = (width - margin_left - margin_right) / total_s
         rows = [
-            ("ITI", 0, "#6c757d", [(0, timing["iti"], "ITI")]),
+            ("ITI", 0, "#6c757d", [(timing["iti_start"], timing["iti_end"], "ITI")]),
             ("Sound onset", 1, "#1f77b4", [(timing["sound_start"], timing["sound_end"], "sound")]),
             ("Response window", 2, "#2ca02c", [(timing["response_start"], timing["response_end"], "response window")]),
             ("Reward (HIT)", 3, "#17a589", [(timing["reward_start"], timing["reward_end"], "reward")]),
@@ -547,7 +547,7 @@ class ProtocolGenerator(tk.Tk):
         response_window = max(0.01, self.parse_float("DMTSResponseWindow_s", 2))
         reward_delay = max(0.0, self.parse_float("DMTSRewardDelay_s", 0))
         reward_duration = max(0.0, self.parse_float("DMTSRewardduration_ms", 40) / 1000.0)
-        sample_start = iti + iti_max
+        sample_start = 0.0
         sample_end = sample_start + sound_duration
         test_start = sample_end + delay
         test_end = test_start + sound_duration
@@ -555,7 +555,11 @@ class ProtocolGenerator(tk.Tk):
         response_end = response_start + response_window
         reward_delay_end = response_end + reward_delay
         reward_end = reward_delay_end + reward_duration
-        total_s = max(reward_end, 1.0)
+        iti_start = reward_end
+        iti_end = iti_start + iti
+        iti_rand_min_end = iti_end + iti_min
+        iti_rand_max_end = iti_end + iti_max
+        total_s = max(iti_rand_max_end, 1.0)
         scale = (width - margin_left - margin_right) / total_s
         iti_y = margin_top
         sample_y = margin_top + row_gap
@@ -576,8 +580,8 @@ class ProtocolGenerator(tk.Tk):
         ):
             canvas.create_text(margin_left - 12, y, text=label, anchor="e")
             canvas.create_line(margin_left, y, width - margin_right, y, fill="#dddddd")
-        self.draw_span(margin_left, iti_y, scale, 0, iti, "#6c757d", "ITI")
-        self.draw_double_arrow(margin_left, iti_y + 18, scale, iti + iti_min, iti + iti_max, "#6c757d", "rand range")
+        self.draw_span(margin_left, iti_y, scale, iti_start, iti_end, "#6c757d", "ITI")
+        self.draw_double_arrow(margin_left, iti_y + 18, scale, iti_rand_min_end, iti_rand_max_end, "#6c757d", "rand range")
         self.draw_span(margin_left, sample_y, scale, sample_start, sample_end, "#1f77b4", "sample")
         self.draw_double_arrow(margin_left, delay_y + 18, scale, sample_end, test_start, "#6c757d", "delay")
         self.draw_span(margin_left, test_y, scale, test_start, test_end, "#ff7f0e", "test")
@@ -586,7 +590,7 @@ class ProtocolGenerator(tk.Tk):
         self.summary_var.set(
             "DMTS: "
             f"sample sound {self.variables['DMTSSampleSoundId'].get()}, "
-            f"ITI {iti:.3g}+{iti_min:.3g}-{iti_max:.3g} s, "
+            f"ITI after trial {iti:.3g}+{iti_min:.3g}-{iti_max:.3g} s, "
             f"delay {delay:.3g} s, test sound {self.variables['DMTSTestSoundId'].get()}, "
             f"random match {'on' if self.variables['DMTSRandomMatchTrials'].get() == '1' else 'off'} "
             f"({self.variables['DMTSSoundIds'].get() or 'fixed IDs'}), "
@@ -597,7 +601,7 @@ class ProtocolGenerator(tk.Tk):
         iti = max(0, self.parse_float("ITI_s", 2))
         iti_min = max(0, self.parse_float("ITIrandMin_s", 0))
         iti_max = max(iti_min, self.parse_float("ITIrandMax_s", iti_min))
-        trial_start = iti + iti_max
+        trial_start = 0.0
         sound_start = trial_start + max(0, self.parse_float("Sounddelay_s", 0))
         sound_end = sound_start + max(0, self.parse_float("SoundDuration_s", 0.2))
         response_start = sound_end + max(0, self.parse_float("RewardDelay_s", 0))
@@ -606,10 +610,14 @@ class ProtocolGenerator(tk.Tk):
         reward_end = reward_start + max(0, self.parse_float("Rewardduration_ms", 40) / 1000)
         timeout_end = response_end + max(0, self.parse_float("PunishNoGoFA", 1))
         trial_end = trial_start + max(0.01, self.parse_float("TrialDuration_s", 2))
+        iti_start = max(trial_end, reward_end)
+        iti_end = iti_start + iti
         return {
             "iti": iti,
-            "iti_rand_min_end": iti + iti_min,
-            "iti_rand_max_end": iti + iti_max,
+            "iti_start": iti_start,
+            "iti_end": iti_end,
+            "iti_rand_min_end": iti_end + iti_min,
+            "iti_rand_max_end": iti_end + iti_max,
             "trial_start": trial_start,
             "sound_start": sound_start,
             "sound_end": sound_end,
@@ -620,7 +628,7 @@ class ProtocolGenerator(tk.Tk):
             "timeout_start": response_end,
             "timeout_end": timeout_end,
             "trial_end": trial_end,
-            "cycle": max(trial_end, timeout_end, reward_end),
+            "cycle": max(iti_end + iti_max, timeout_end),
         }
 
     def draw_axis(self, x0, y, x1, total_s, scale):

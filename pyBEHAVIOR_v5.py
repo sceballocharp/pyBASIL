@@ -82,6 +82,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.exp_folder = ""
         self.irfork_was_high = False
         self.last_trigger_time = -1e12
+        self.last_trial_end_time_s = -1e12
         self.next_trial_allowed_time_s = -1e12
         self.current_ir_baseline = 0.0
         self.sound_data = None
@@ -640,6 +641,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.running = True
         self.irfork_was_high = False
         self.last_trigger_time = -1e12
+        self.last_trial_end_time_s = -1e12
         self.next_trial_allowed_time_s = -1e12
         self.trial_index = 0
         self.acq_start_perf = None
@@ -1128,7 +1130,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_reward_decided = False
         self.active_trial_base_iti_s = iti_s
         self.active_trial_extra_timeout_s = 0.0
-        self.next_trial_allowed_time_s = trigger_time_s + iti_s
         self.trigger_reset_seen_for_new_trial = False
         self.start_trial_state_interval(trigger_time_s)
 
@@ -1159,7 +1160,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
-        self.next_trial_allowed_time_s = trigger_time_s + iti_s
         self.trigger_reset_seen_for_new_trial = False
         self.start_trial_state_interval(trigger_time_s)
         if self.play_sound_on_crossing.get():
@@ -1350,6 +1350,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.write_trial_log()
         self.plot_queue.put(("results", None))
         self.plot_queue.put(("log", f"DMTS trial {row['trial']} stopped: {reason}. Result=MISS."))
+        self.apply_trial_timeout(row, trial_end_s)
         self.end_trial_state_interval(trial_end_s)
         self.clear_active_trial()
 
@@ -1392,6 +1393,9 @@ class BehaviorAcquisitionApp(tk.Tk):
         if not self.active_dmts_scored:
             reward_start_s = self.active_dmts_reward_start_s or trial_end_s
             self.finish_active_dmts_reward_period(reward_start_s)
+        row = self.get_active_trial_row()
+        if row is not None:
+            self.apply_trial_timeout(row, trial_end_s)
         self.write_trial_log()
         self.plot_queue.put(("results", None))
         self.end_trial_state_interval(trial_end_s)
@@ -1414,7 +1418,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.lever_reset_seen_for_new_trial = False
         self.trigger_reset_seen_for_new_trial = False
         self.lever_pending_start_s = None
-        self.next_trial_allowed_time_s = trigger_time_s + iti_s
         self.start_trial_state_interval(trigger_time_s)
 
     def start_trial_state_interval(self, start_s):
@@ -1505,7 +1508,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         row["ResultType"] = "HIT" if success else "MISS"
         if success:
             self.maybe_send_go_reward(row, hold_s, start_s=trial_end_s)
-        self.apply_trial_timeout(row)
+        self.apply_trial_timeout(row, trial_end_s)
         self.write_trial_log()
         self.plot_queue.put(("results", None))
         self.plot_queue.put(("log", f"Lever trial {row['trial']} hold time was {hold_s:.3f} s. Result={row['ResultType']}."))
@@ -1647,7 +1650,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             row["ResultType"] = "CR" if row["CR"] else "FA"
             if row["FA"]:
                 self.active_trial_extra_timeout_s = self.get_punish_no_go_fa_s()
-        self.apply_trial_timeout(row)
+        self.apply_trial_timeout(row, trial_end_s)
         self.write_trial_log()
         self.plot_queue.put(("results", None))
         result = f", {row['ResultType']}" if row["ResultType"] else ""
@@ -1678,7 +1681,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             row["ResultType"] = "CR" if row["CR"] else "FA"
             if row["FA"]:
                 self.active_trial_extra_timeout_s = self.get_punish_no_go_fa_s()
-        self.apply_trial_timeout(row)
+        self.apply_trial_timeout(row, trial_end_s)
         self.write_trial_log()
         self.plot_queue.put(("results", None))
         result = f", {row['ResultType']}" if row["ResultType"] else ""
@@ -1689,19 +1692,19 @@ class BehaviorAcquisitionApp(tk.Tk):
     def get_punish_no_go_fa_s(self):
         return min(10.0, max(0.0, self.parse_float(self.punish_no_go_fa, 0)))
 
-    def apply_trial_timeout(self, row):
+    def apply_trial_timeout(self, row, trial_end_s):
         if row["TrialType"].endswith("noGo") and row["ResultType"] == "FA":
             self.active_trial_extra_timeout_s = self.get_punish_no_go_fa_s()
         else:
             self.active_trial_extra_timeout_s = 0.0
         total_timeout_s = self.active_trial_base_iti_s + self.active_trial_extra_timeout_s
-        if self.last_trigger_time > -1e11:
-            self.next_trial_allowed_time_s = self.last_trigger_time + total_timeout_s
+        self.last_trial_end_time_s = trial_end_s
+        self.next_trial_allowed_time_s = trial_end_s + total_timeout_s
         if self.active_trial_extra_timeout_s:
             self.plot_queue.put((
                 "log",
                 f"noGo FA timeout added: {self.active_trial_extra_timeout_s:g} s. "
-                f"Next trial allowed after {total_timeout_s:g} s from trial start.",
+                f"Next trial allowed after {total_timeout_s:g} s from trial end.",
             ))
 
     def maybe_send_go_reward(self, row, total_s, start_s=None):
@@ -2814,9 +2817,9 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.draw_since_last_trial_timer(max_t, width)
 
     def draw_iti_shading(self, min_t, max_t, left_pad, top_pad, plot_width, x_axis_y):
-        if self.last_trigger_time <= -1e11 or self.next_trial_allowed_time_s <= self.last_trigger_time:
+        if self.last_trial_end_time_s <= -1e11 or self.next_trial_allowed_time_s <= self.last_trial_end_time_s:
             return
-        shade_start_s = max(self.last_trigger_time, min_t)
+        shade_start_s = max(self.last_trial_end_time_s, min_t)
         shade_end_s = min(self.next_trial_allowed_time_s, max_t)
         shade_end_s = min(max(shade_end_s, shade_start_s), max_t)
         if shade_end_s < min_t or shade_start_s > max_t:
@@ -2831,11 +2834,15 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.plot_canvas.create_line(x1, top_pad, x1, x_axis_y, fill="#c7b76a", dash=(4, 3))
 
     def draw_since_last_trial_timer(self, current_time_s, width):
-        if self.last_trigger_time <= -1e11:
-            text = "Since last trial: --"
+        if self.active_trial_index is not None:
+            text = "Trial running"
+        elif self.last_trial_end_time_s > -1e11:
+            elapsed_s = max(0.0, current_time_s - self.last_trial_end_time_s)
+            text = f"Since trial end: {elapsed_s:.1f} s"
+        elif self.last_trigger_time <= -1e11:
+            text = "Since trial end: --"
         else:
-            elapsed_s = max(0.0, current_time_s - self.last_trigger_time)
-            text = f"Since last trial: {elapsed_s:.1f} s"
+            text = "Trial running"
         self.plot_canvas.create_text(
             width - 8,
             78,

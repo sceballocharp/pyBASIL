@@ -51,7 +51,7 @@ TaskType=ClassicGoNoGo
 
 | Parameter | GUI label | Meaning |
 | --- | --- | --- |
-| `ITI_s` | ITI | Base inter-trial interval. |
+| `ITI_s` | ITI | Base inter-trial interval measured from trial end. |
 | `ITIrandMin_s` | rand min | Minimum random ITI addition. |
 | `ITIrandMax_s` | rand max | Maximum random ITI addition. |
 | `Sounddelay_s` | Sound delay s | Delay from trial start to sound onset. |
@@ -96,7 +96,7 @@ Minlickcount=<count>
 
 A response is scored when the signal crosses above `Lickthreshold` at least `Minlickcount` times during the response window.
 
-Classic Go/No-Go trials also require a clean reset between trials: after ITI, the trigger signal must be observed below the active threshold before the next upward crossing can start a new trial. If ITI ends while the signal is still above threshold, no trial starts until the signal goes low and crosses upward again.
+Classic Go/No-Go trials also require a clean reset between trials: after the trial ends and the ITI has elapsed, the trigger signal must be observed below the active threshold before the next upward crossing can start a new trial. If ITI ends while the signal is still above threshold, no trial starts until the signal goes low and crosses upward again.
 
 ## Lever
 
@@ -119,7 +119,7 @@ TaskType=Lever
 | `Rewardduration_ms` | Reward duration ms | Water valve/trigger pulse duration in ms. |
 | `RewardGo` | RewardGo Prob | Probability that a successful lever response is rewarded, from `0` to `1`. |
 
-Lever trials also require a clean reset between trials: after ITI, the lever signal must be observed below `LeverThreshold` before the next upward crossing can start a new trial. A new lever press must then remain above `LeverThreshold` for `LeverStartDebounce_s` before the trial is accepted, preventing single-sample noise from starting trials.
+Lever trials also require a clean reset between trials: after the trial ends and the ITI has elapsed, the lever signal must be observed below `LeverThreshold` before the next upward crossing can start a new trial. A new lever press must then remain above `LeverThreshold` for `LeverStartDebounce_s` before the trial is accepted, preventing single-sample noise from starting trials.
 
 ## DMTS
 
@@ -131,7 +131,7 @@ TaskType=DMTS
 
 DMTS means delayed match to sample. The protocol generator can create these parameters and preview the timing. `pyBEHAVIOR_v5.py` now has an initial runtime structure for one sample/test pair: sample sound, delay, test sound, response window, and HIT/MISS scoring from either lick count or IR beam crossing duration. When `DMTSRandomMatchTrials` is enabled, the runtime randomly chooses a sound ID from `DMTSSoundIds` at each trial start and uses that same ID for both the sample and test sounds. The checkbox can be changed during live behavior. The current DMTS HIT rule is strict same-ID matching: if `SampleSoundId` and `TestSoundId` for the active trial are the same, the response criterion is met, and the animal remains in the IR fork until the reward period, the trial is logged as a HIT. For IRFork-triggered DMTS, if the fork event ends before the reward-period decision, the trial stops immediately and is logged as a MISS.
 
-DMTS trial starts use the same clean-reset rule as Classic Go/No-Go: after ITI, the trigger signal must be observed below threshold before a new upward crossing can start the next trial.
+DMTS trial starts use the same clean-reset rule as Classic Go/No-Go: after the trial ends and the ITI has elapsed, the trigger signal must be observed below threshold before a new upward crossing can start the next trial.
 
 ### Task
 
@@ -150,7 +150,7 @@ DMTS trial starts use the same clean-reset rule as Classic Go/No-Go: after ITI, 
 
 | Parameter | GUI label | Meaning |
 | --- | --- | --- |
-| `ITI_s` | ITI | Base inter-trial interval before the sample sound. |
+| `ITI_s` | ITI | Base inter-trial interval measured from trial end before the next sample sound can start. |
 | `ITIrandMin_s` | ITI min | Minimum random ITI addition. |
 | `ITIrandMax_s` | ITI max | Maximum random ITI addition. |
 | `SoundDuration_s` | Sound duration s | Duration of each sound stimulus. |
