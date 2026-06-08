@@ -1846,12 +1846,14 @@ class BehaviorAcquisitionApp(tk.Tk):
                     selected = arr
                 else:
                     selected = arr[:, sound_id - 1]
-                selected = np.asarray(selected, dtype=float).reshape(-1)
-                return selected * self.parse_float(self.sound_level, 1)
+                return np.asarray(selected, dtype=float).reshape(-1)
         except Exception:
             pass
         self.log("Could not extract selected sound from MAT file.")
         return None
+
+    def get_sound_level_gain(self):
+        return self.parse_float(self.sound_level, 1.0)
 
     def play_loaded_sound(self, use_sequence=False, from_worker=False, sound_id=None, start_s=None):
         if sound_id is None:
@@ -1859,9 +1861,16 @@ class BehaviorAcquisitionApp(tk.Tk):
         signal = self.get_sound_by_id(sound_id)
         if signal is None:
             return None
+        gain = self.get_sound_level_gain()
+        signal = signal * gain
         fs = 192000
         duration_s = len(signal) / fs if len(signal) else 0.0
-        msg = f"Played sound id {sound_id}."
+        peak_v = 0.0
+        try:
+            peak_v = float(np.max(np.abs(signal))) if np is not None and len(signal) else max(abs(float(value)) for value in signal)
+        except Exception:
+            peak_v = 0.0
+        msg = f"Played sound id {sound_id}, level {gain:g}, peak {peak_v:.3g} V."
         try:
             self.record_sound_output(signal, fs, sound_id, start_s=start_s)
             if nidaqmx is not None:
