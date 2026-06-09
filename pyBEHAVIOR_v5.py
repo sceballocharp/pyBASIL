@@ -139,6 +139,10 @@ class BehaviorAcquisitionApp(tk.Tk):
 
         self.ai_task = None
         self.reward_task = None
+        self.reward_train_after_id = None
+        self.reward_train_remaining = 0
+        self.reward_train_total = 0
+        self.reward_train_interval_ms = 1000
 
         self._build_ui()
         self.generate_sequence(log=False)
@@ -189,6 +193,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         ttk.Button(run_setup_left, text="stim_generator", command=self.open_stim_generator_window).grid(row=2, column=3, columnspan=2, padx=4, pady=4, sticky="ew")
         self._file_row(run_setup_left, 2, "NI script", self.ni_script, self.choose_ni_script)
         self._file_row(run_setup_left, 3, "Sound .mat", self.sound_file, self.choose_sound_file)
+        self.reward_train_button = ttk.Button(run_setup_left, text="100 Rewards", command=self.toggle_reward_train)
+        self.reward_train_button.grid(row=3, column=3, columnspan=2, padx=4, pady=4, sticky="ew")
 
         session = ttk.LabelFrame(root, text="Session")
         session.grid(row=1, column=0, sticky="ew", pady=(0, 6))
@@ -541,6 +547,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             return
         target_fs = 192000
         sounds = np.empty((1, len(wav_paths)), dtype=object)
+        manifest_rows = []
         self.stim_log(log_text, f"Building MAT from {len(wav_paths)} WAV files.")
         for index, path in enumerate(wav_paths, start=1):
             try:
@@ -549,6 +556,7 @@ class BehaviorAcquisitionApp(tk.Tk):
                 sounds[0, index - 1] = signal
                 peak = float(np.max(np.abs(signal))) if len(signal) else 0.0
                 rel_name = os.path.relpath(path, folder)
+                manifest_rows.append((index, rel_name, fs, len(signal), peak))
                 self.stim_log(log_text, f"{index}: {rel_name} -> {len(signal)} samples at {target_fs} Hz, peak {peak:.3g}")
             except Exception as exc:
                 message = f"Could not process {path}: {exc}"
@@ -558,17 +566,32 @@ class BehaviorAcquisitionApp(tk.Tk):
         try:
             os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
             savemat(output_path, {"Sound": sounds})
+            manifest_path = self.stim_manifest_path(output_path)
+            self.write_stim_manifest(manifest_path, manifest_rows, target_fs)
         except Exception as exc:
-            message = f"Could not save MAT file: {exc}"
+            message = f"Could not save MAT or manifest file: {exc}"
             self.stim_log(log_text, message)
             status_var.set(message)
             return
         self.sound_file.set(output_path)
         self.sound_loaded = False
-        message = f"Saved {len(wav_paths)} sounds to {output_path}"
+        message = f"Saved {len(wav_paths)} sounds to {output_path} and {manifest_path}"
         self.stim_log(log_text, message)
         status_var.set(message)
         self.log(f"stim_generator saved MAT file: {output_path}")
+
+    def stim_manifest_path(self, mat_path):
+        root, _ext = os.path.splitext(mat_path)
+        return root + "_soundID_map.txt"
+
+    def write_stim_manifest(self, path, rows, target_fs):
+        with open(path, "w", encoding="utf-8", newline="") as handle:
+            handle.write("sound_id\twav_file\toriginal_fs_hz\ttarget_fs_hz\tsamples\tpeak\n")
+            for sound_id, rel_name, original_fs, sample_count, peak in rows:
+                handle.write(
+                    f"{sound_id}\t{rel_name}\t{original_fs}\t"
+                    f"{target_fs}\t{sample_count}\t{peak:.9g}\n"
+                )
 
     def find_wav_files(self, folder):
         paths = []
@@ -861,6 +884,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.log("Live acquisition started.")
 
     def stop_live(self):
+        self.cancel_reward_train(log_message=False)
         self.running = False
         if self.active_trial_index is not None and self.time_buffer:
             trial_end_s = min(self.time_buffer[-1], self.active_trial_end_s or self.time_buffer[-1])
@@ -1960,6 +1984,58 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.plot_queue.put(("log", msg))
         else:
             self.log(msg)
+
+    def toggle_reward_train(self):
+        if self.reward_train_after_id is not None or self.reward_train_remaining > 0:
+            self.cancel_reward_train(log_message=True)
+            return
+        self.start_reward_train(count=100, interval_ms=1000)
+
+    def start_reward_train(self, count=100, interval_ms=5000):
+        self.reward_train_total = max(0, int(count))
+        self.reward_train_remaining = self.reward_train_total
+        self.reward_train_interval_ms = max(1, int(interval_ms))
+        if self.reward_train_remaining <= 0:
+            return
+        self.reward_train_button.configure(text="Cancel 100 Rewards")
+        self.log(f"Starting {self.reward_train_total} rewards, one every {self.reward_train_interval_ms / 1000:g} s.")
+        self.run_reward_train_step()
+
+    def run_reward_train_step(self):
+        self.reward_train_after_id = None
+        if self.reward_train_remaining <= 0:
+            self.finish_reward_train()
+            return
+        delivered_index = self.reward_train_total - self.reward_train_remaining + 1
+        self.log(f"Reward train pulse {delivered_index}/{self.reward_train_total}.")
+        self.send_output_pulse()
+        self.reward_train_remaining -= 1
+        if self.reward_train_remaining <= 0:
+            self.finish_reward_train()
+            return
+        self.reward_train_after_id = self.after(self.reward_train_interval_ms, self.run_reward_train_step)
+
+    def finish_reward_train(self):
+        self.reward_train_after_id = None
+        self.reward_train_remaining = 0
+        self.reward_train_total = 0
+        self.reward_train_button.configure(text="100 Rewards")
+        self.log("Reward train finished.")
+
+    def cancel_reward_train(self, log_message=True):
+        if self.reward_train_after_id is not None:
+            try:
+                self.after_cancel(self.reward_train_after_id)
+            except Exception:
+                pass
+        was_active = self.reward_train_after_id is not None or self.reward_train_remaining > 0
+        self.reward_train_after_id = None
+        self.reward_train_remaining = 0
+        self.reward_train_total = 0
+        if hasattr(self, "reward_train_button"):
+            self.reward_train_button.configure(text="100 Rewards")
+        if log_message and was_active:
+            self.log("Reward train cancelled.")
 
     def record_trigger_pulse(self, pulse_s, start_s=None):
         if self.acq_start_perf is None:
