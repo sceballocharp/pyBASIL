@@ -18,9 +18,13 @@ except Exception:
     np = None
 
 try:
-    from scipy.io import loadmat
+    from scipy.io import loadmat, savemat, wavfile
+    from scipy.signal import resample_poly
 except Exception:
     loadmat = None
+    savemat = None
+    wavfile = None
+    resample_poly = None
 
 try:
     import nidaqmx
@@ -182,6 +186,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         ttk.Button(run_setup_left, text="Open .bin", command=self.open_bin).grid(row=1, column=2, padx=4, pady=4, sticky="ew")
         ttk.Button(run_setup_left, text="Results Figure", command=self.open_results_window).grid(row=1, column=3, padx=4, pady=4, sticky="ew")
         ttk.Checkbutton(run_setup_left, text="Simulation", variable=self.simulation_mode).grid(row=1, column=4, padx=4, pady=4, sticky="w")
+        ttk.Button(run_setup_left, text="stim_generator", command=self.open_stim_generator_window).grid(row=2, column=3, columnspan=2, padx=4, pady=4, sticky="ew")
         self._file_row(run_setup_left, 2, "NI script", self.ni_script, self.choose_ni_script)
         self._file_row(run_setup_left, 3, "Sound .mat", self.sound_file, self.choose_sound_file)
 
@@ -445,6 +450,160 @@ class BehaviorAcquisitionApp(tk.Tk):
         if path:
             self.sound_file.set(path)
             self.sound_loaded = False
+
+    def open_stim_generator_window(self):
+        if hasattr(self, "stim_generator_window") and self.stim_generator_window is not None:
+            try:
+                if self.stim_generator_window.winfo_exists():
+                    self.stim_generator_window.lift()
+                    return
+            except tk.TclError:
+                pass
+        window = tk.Toplevel(self)
+        window.title("stim_generator")
+        window.geometry("760x420")
+        window.minsize(620, 320)
+        self.stim_generator_window = window
+        folder_var = tk.StringVar(value="")
+        output_var = tk.StringVar(value="")
+        status_var = tk.StringVar(value="Select a folder containing .wav files.")
+
+        body = ttk.Frame(window, padding=10)
+        body.pack(fill=tk.BOTH, expand=True)
+        body.columnconfigure(1, weight=1)
+        body.rowconfigure(4, weight=1)
+
+        ttk.Label(body, text="WAV folder").grid(row=0, column=0, sticky="w", padx=(0, 6), pady=4)
+        ttk.Entry(body, textvariable=folder_var).grid(row=0, column=1, sticky="ew", pady=4)
+        ttk.Button(body, text="Select folder", command=lambda: self.choose_stim_wav_folder(folder_var, output_var, log_text, status_var)).grid(row=0, column=2, padx=(6, 0), pady=4)
+
+        ttk.Label(body, text="Output MAT").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=4)
+        ttk.Entry(body, textvariable=output_var).grid(row=1, column=1, sticky="ew", pady=4)
+        ttk.Button(body, text="Save as", command=lambda: self.choose_stim_mat_output(output_var)).grid(row=1, column=2, padx=(6, 0), pady=4)
+
+        ttk.Button(body, text="Build MAT", command=lambda: self.build_stim_mat_from_wavs(folder_var.get(), output_var.get(), log_text, status_var)).grid(row=2, column=1, sticky="ew", pady=(8, 4))
+        ttk.Label(body, textvariable=status_var).grid(row=3, column=0, columnspan=3, sticky="w", pady=(4, 4))
+
+        log_text = tk.Text(body, height=10, wrap=tk.WORD)
+        log_text.grid(row=4, column=0, columnspan=3, sticky="nsew", pady=(6, 0))
+        scrollbar = ttk.Scrollbar(body, orient=tk.VERTICAL, command=log_text.yview)
+        scrollbar.grid(row=4, column=3, sticky="ns", pady=(6, 0))
+        log_text.configure(yscrollcommand=scrollbar.set)
+
+        def on_close():
+            self.stim_generator_window = None
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", on_close)
+
+    def choose_stim_wav_folder(self, folder_var, output_var, log_text, status_var):
+        folder = filedialog.askdirectory(initialdir=APP_DIR)
+        if not folder:
+            return
+        folder_var.set(folder)
+        if not output_var.get().strip():
+            output_var.set(os.path.join(folder, "AllSounds_from_wav.mat"))
+        wav_paths = self.find_wav_files(folder)
+        self.stim_log(log_text, f"Selected folder: {folder}")
+        self.stim_log(log_text, f"Found {len(wav_paths)} .wav files.")
+        status_var.set(f"Found {len(wav_paths)} .wav files.")
+
+    def choose_stim_mat_output(self, output_var):
+        path = filedialog.asksaveasfilename(
+            initialdir=APP_DIR,
+            initialfile="AllSounds_from_wav.mat",
+            defaultextension=".mat",
+            filetypes=[("MAT files", "*.mat"), ("All files", "*.*")],
+        )
+        if path:
+            output_var.set(path)
+
+    def build_stim_mat_from_wavs(self, folder, output_path, log_text, status_var):
+        if np is None or savemat is None or wavfile is None or resample_poly is None:
+            message = "Cannot build MAT: numpy and scipy.io/scipy.signal are required."
+            self.stim_log(log_text, message)
+            status_var.set(message)
+            return
+        folder = folder.strip()
+        output_path = output_path.strip()
+        if not folder or not os.path.isdir(folder):
+            message = "Select a valid WAV folder first."
+            self.stim_log(log_text, message)
+            status_var.set(message)
+            return
+        if not output_path:
+            output_path = os.path.join(folder, "AllSounds_from_wav.mat")
+        wav_paths = self.find_wav_files(folder)
+        if not wav_paths:
+            message = "No .wav files found."
+            self.stim_log(log_text, message)
+            status_var.set(message)
+            return
+        target_fs = 192000
+        sounds = np.empty((1, len(wav_paths)), dtype=object)
+        self.stim_log(log_text, f"Building MAT from {len(wav_paths)} WAV files.")
+        for index, path in enumerate(wav_paths, start=1):
+            try:
+                fs, data = wavfile.read(path)
+                signal = self.prepare_wav_signal_for_mat(data, fs, target_fs)
+                sounds[0, index - 1] = signal
+                peak = float(np.max(np.abs(signal))) if len(signal) else 0.0
+                rel_name = os.path.relpath(path, folder)
+                self.stim_log(log_text, f"{index}: {rel_name} -> {len(signal)} samples at {target_fs} Hz, peak {peak:.3g}")
+            except Exception as exc:
+                message = f"Could not process {path}: {exc}"
+                self.stim_log(log_text, message)
+                status_var.set(message)
+                return
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+            savemat(output_path, {"Sound": sounds})
+        except Exception as exc:
+            message = f"Could not save MAT file: {exc}"
+            self.stim_log(log_text, message)
+            status_var.set(message)
+            return
+        self.sound_file.set(output_path)
+        self.sound_loaded = False
+        message = f"Saved {len(wav_paths)} sounds to {output_path}"
+        self.stim_log(log_text, message)
+        status_var.set(message)
+        self.log(f"stim_generator saved MAT file: {output_path}")
+
+    def find_wav_files(self, folder):
+        paths = []
+        for root, _dirs, files in os.walk(folder):
+            for filename in files:
+                if filename.lower().endswith(".wav"):
+                    paths.append(os.path.join(root, filename))
+        return sorted(paths, key=self.stim_wav_sort_key)
+
+    def stim_wav_sort_key(self, path):
+        stem = os.path.splitext(os.path.basename(path))[0]
+        match = re.search(r"\d+", stem)
+        if match:
+            return (0, int(match.group(0)), stem.lower(), path.lower())
+        return (1, stem.lower(), path.lower())
+
+    def prepare_wav_signal_for_mat(self, data, fs, target_fs):
+        arr = np.asarray(data)
+        if arr.ndim > 1:
+            arr = arr.mean(axis=1)
+        if np.issubdtype(arr.dtype, np.integer):
+            max_value = max(abs(np.iinfo(arr.dtype).min), np.iinfo(arr.dtype).max)
+            arr = arr.astype(float) / float(max_value)
+        else:
+            arr = arr.astype(float)
+        if fs != target_fs:
+            divisor = math.gcd(int(fs), int(target_fs))
+            up = int(target_fs // divisor)
+            down = int(fs // divisor)
+            arr = resample_poly(arr, up, down)
+        return np.asarray(arr, dtype=float).reshape(-1)
+
+    def stim_log(self, log_text, message):
+        log_text.insert(tk.END, message + "\n")
+        log_text.see(tk.END)
 
     def import_parameters_file(self):
         path = filedialog.askopenfilename(
