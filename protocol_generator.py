@@ -62,9 +62,11 @@ PARAMETERS = [
     Parameter("LeverRewardGo", "RewardGo Prob", "1", "LeverOutcome", "float"),
     Parameter("DMTSTaskType", "Task type", "DMTS", "DMTS"),
     Parameter("DMTSMaxTrials", "Max trials", "300", "DMTS", "int"),
+    Parameter("DMTSMatchWeight", "Match weight", "0.5", "DMTS", "float"),
+    Parameter("DMTSNonMatchWeight", "Non-match weight", "0.5", "DMTS", "float"),
     Parameter("DMTSSampleSoundId", "Sample sound ID", "1", "DMTS", "int"),
     Parameter("DMTSTestSoundId", "Test sound ID", "1", "DMTS", "int"),
-    Parameter("DMTSRandomMatchTrials", "Random match trials", "0", "DMTS", "choice", ("0", "1")),
+    Parameter("DMTSRandomMatchTrials", "Random DMTS sounds", "1", "DMTS", "choice", ("0", "1")),
     Parameter("DMTSSoundIds", "Sound IDs", "1:16", "DMTS"),
     Parameter("DMTSSoundLevel", "Sound level", "1", "DMTS", "float"),
     Parameter("DMTSRandomSeed", "Random seed", "0", "DMTS", "int"),
@@ -339,6 +341,8 @@ class ProtocolGenerator(tk.Tk):
             return {
                 "TaskType": "DMTSTaskType",
                 "MaxTrials": "DMTSMaxTrials",
+                "GoWeight": "DMTSMatchWeight",
+                "NoGoWeight": "DMTSNonMatchWeight",
                 "SampleSoundId": "DMTSSampleSoundId",
                 "TestSoundId": "DMTSTestSoundId",
                 "DMTSRandomMatchTrials": "DMTSRandomMatchTrials",
@@ -592,8 +596,9 @@ class ProtocolGenerator(tk.Tk):
             f"sample sound {self.variables['DMTSSampleSoundId'].get()}, "
             f"ITI after trial {iti:.3g}+{iti_min:.3g}-{iti_max:.3g} s, "
             f"delay {delay:.3g} s, test sound {self.variables['DMTSTestSoundId'].get()}, "
-            f"random match {'on' if self.variables['DMTSRandomMatchTrials'].get() == '1' else 'off'} "
-            f"({self.variables['DMTSSoundIds'].get() or 'fixed IDs'}), "
+            f"match/non-match weights "
+            f"{self.variables['DMTSMatchWeight'].get()}/{self.variables['DMTSNonMatchWeight'].get()}, "
+            f"sound pool {self.variables['DMTSSoundIds'].get() or 'fixed IDs'}, "
             f"HIT threshold {self.variables['DMTSHITThreshold_percent'].get()}% RW"
         )
 
@@ -709,6 +714,8 @@ def write_dat(path, values, parameters):
         "LeverRewardGo": "RewardGo",
         "DMTSTaskType": "TaskType",
         "DMTSMaxTrials": "MaxTrials",
+        "DMTSMatchWeight": "GoWeight",
+        "DMTSNonMatchWeight": "NoGoWeight",
         "DMTSSampleSoundId": "SampleSoundId",
         "DMTSTestSoundId": "TestSoundId",
         "DMTSRandomMatchTrials": "DMTSRandomMatchTrials",
@@ -738,6 +745,9 @@ def write_dat(path, values, parameters):
             if key in {"NICard_filename", "Sound_filename"}:
                 value = value.replace("\\", "/")
             handle.write(f"{key}={value}\n")
+        if values.get("DMTSTaskType") == "DMTS":
+            handle.write("GoSoundId=1\n")
+            handle.write("NoGoSoundId=2\n")
 
 
 if __name__ == "__main__":

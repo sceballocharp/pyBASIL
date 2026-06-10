@@ -102,6 +102,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.parameter_rows = []
         self.current_parameter_signature = None
         self.parameter_block_index = 0
+        self.generate_sequence(log=False)
         self.active_trial_index = None
         self.active_trial_start_s = None
         self.active_trial_end_s = None
@@ -269,7 +270,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         ttk.Button(trig, text="Test Sound", command=lambda: self.play_loaded_sound(use_sequence=False)).grid(row=1, column=4, padx=8, pady=4)
         self.lever_release_check = ttk.Checkbutton(trig, text="Require release", variable=self.lever_require_release)
         self.lever_release_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
-        self.dmts_random_match_check = ttk.Checkbutton(trig, text="Random match trials", variable=self.dmts_random_match_trials)
+        self.dmts_random_match_check = ttk.Checkbutton(trig, text="Random DMTS sounds", variable=self.dmts_random_match_trials)
         self.dmts_random_match_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
 
         body = ttk.Frame(root)
@@ -739,7 +740,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.log("Closed-loop sequence updated from imported Go/NoGo parameters.")
         if self.is_dmts_task():
             self.sound_id.set(self.sample_sound_id.get())
-            self.sequence_values.set(f"{self.sample_sound_id.get()} {self.test_sound_id.get()}")
+            self.sequence_values.set("1 2")
+            self.generate_sequence(log=False)
             self.update_trial_duration()
         return applied
 
@@ -1054,12 +1056,25 @@ class BehaviorAcquisitionApp(tk.Tk):
                 self.plot_queue.put(("log", f"Accepted crossing ignored: max trials {max_trials} reached."))
                 continue
 
-            dmts_sample_id, dmts_test_id = self.choose_dmts_trial_sound_ids() if self.is_dmts_task() else (None, None)
+            dmts_trial_type_id = self.consume_next_dmts_trial_type() if self.is_dmts_task() else None
+            dmts_sample_id, dmts_test_id = self.choose_dmts_trial_sound_ids(dmts_trial_type_id) if self.is_dmts_task() else (None, None)
             sound_id = dmts_sample_id if self.is_dmts_task() else (
                 self.consume_next_sound_id() if self.play_sound_on_crossing.get() else self.parse_int(self.sound_id, 1)
             )
             iti = self.draw_trial_iti_s()
-            self.create_trial(sound_id, sample_time_s, threshold, iti, trial_test_sound_id=dmts_test_id)
+            if self.is_dmts_task():
+                trial_type = "DMTS-match" if dmts_trial_type_id == 1 else "DMTS-nonmatch"
+                self.create_trial(
+                    sound_id,
+                    sample_time_s,
+                    threshold,
+                    iti,
+                    trial_test_sound_id=dmts_test_id,
+                    trial_type_id=dmts_trial_type_id,
+                    trial_type=trial_type,
+                )
+            else:
+                self.create_trial(sound_id, sample_time_s, threshold, iti)
             if self.is_dmts_task():
                 self.start_active_dmts_trial(sample_time_s, iti, dmts_sample_id, dmts_test_id)
             else:
@@ -1069,7 +1084,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             if self.play_sound_on_crossing.get() and not self.is_dmts_task():
                 self.play_loaded_sound(sound_id=sound_id, from_worker=True, start_s=sample_time_s)
             self.last_trigger_time = sample_time_s
-            trial_type_id, trial_type = self.classify_trial_sound(sound_id)
+            trial_type_id, trial_type = self.classify_trial_sound(sound_id, dmts_test_id)
             trigger_name = self.trigger_type.get().strip() or "Trigger"
             self.plot_queue.put(("log", f"{trigger_name} crossed {threshold:g} V. Trial {self.trial_index} is type {trial_type_id} {trial_type}, sound id {sound_id}."))
             if not self.is_dmts_task():
@@ -1226,9 +1241,10 @@ class BehaviorAcquisitionApp(tk.Tk):
             for key in keys:
                 f.write(f"{key}={params[key]}\n")
 
-    def create_trial(self, sound_id, trigger_time_s, threshold, iti, trial_test_sound_id=None):
+    def create_trial(self, sound_id, trigger_time_s, threshold, iti, trial_test_sound_id=None, trial_type_id=None, trial_type=None):
         self.trial_index += 1
-        trial_type_id, trial_type = self.classify_trial_sound(sound_id)
+        if trial_type_id is None or trial_type is None:
+            trial_type_id, trial_type = self.classify_trial_sound(sound_id, trial_test_sound_id)
         timestamp = datetime.now().isoformat(timespec="milliseconds")
         rate = self.parse_float(self.rate_hz, 1000)
         trigger_sample = int(round(trigger_time_s * rate))
@@ -1421,7 +1437,17 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.evaluate_active_lever_trial(sample_time_s)
 
     def update_active_dmts_trial(self, sample_time_s, is_high, crossed_up, crossed_down):
-        if not self.is_lick_trigger() and not self.active_dmts_scored:
+        is_match_trial = self.active_dmts_sample_sound_id == self.active_dmts_test_sound_id
+        before_test_sound = (
+            self.active_dmts_test_sound_time_s is not None
+            and sample_time_s < self.active_dmts_test_sound_time_s
+        )
+        low_started_before_test = (
+            self.active_dmts_test_sound_time_s is not None
+            and self.active_dmts_low_start_s is not None
+            and self.active_dmts_low_start_s < self.active_dmts_test_sound_time_s
+        )
+        if (is_match_trial or before_test_sound or low_started_before_test) and not self.is_lick_trigger() and not self.active_dmts_scored:
             if is_high:
                 self.active_dmts_low_start_s = None
             elif crossed_down:
@@ -1429,7 +1455,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             elif self.active_dmts_low_start_s is not None:
                 low_duration_s = sample_time_s - self.active_dmts_low_start_s
                 if low_duration_s >= self.get_dmts_fork_grace_s():
-                    self.finish_active_dmts_miss(self.active_dmts_low_start_s, "fork event ended")
+                    self.finish_active_dmts_miss(self.active_dmts_low_start_s, "fork event ended before reward decision")
                     return
 
         if self.active_dmts_test_sound_time_s is not None and not self.active_dmts_test_sound_played:
@@ -1503,12 +1529,23 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.finish_active_dmts_response(self.active_dmts_response_end_s or reward_start_s)
         self.active_dmts_scored = True
         same_sound = self.active_dmts_sample_sound_id == self.active_dmts_test_sound_id
-        hit = bool(same_sound and self.active_dmts_response_met)
+        response_met = bool(self.active_dmts_response_met)
+        hit = bool(same_sound and response_met)
+        miss = bool(same_sound and not response_met)
+        cr = bool(not same_sound and not response_met)
+        fa = bool(not same_sound and response_met)
         row["HIT"] = int(hit)
-        row["MISS"] = int(not hit)
-        row["CR"] = 0
-        row["FA"] = 0
-        row["ResultType"] = "HIT" if hit else "MISS"
+        row["MISS"] = int(miss)
+        row["CR"] = int(cr)
+        row["FA"] = int(fa)
+        if hit:
+            row["ResultType"] = "HIT"
+        elif miss:
+            row["ResultType"] = "MISS"
+        elif cr:
+            row["ResultType"] = "CR"
+        else:
+            row["ResultType"] = "FA"
         if hit:
             measure = float(row.get("lick_count") or self.active_crossing_total_s)
             self.maybe_send_go_reward(row, measure, start_s=reward_start_s)
@@ -1540,13 +1577,23 @@ class BehaviorAcquisitionApp(tk.Tk):
     def get_dmts_fork_grace_s(self):
         return max(0.0, self.parse_float(self.dmts_fork_grace_s, 0.1))
 
-    def choose_dmts_trial_sound_ids(self):
+    def choose_dmts_trial_sound_ids(self, trial_type_id=1):
         sound_ids = self.parse_dmts_sound_ids() if self.dmts_random_match_trials.get() else []
+        is_nonmatch = int(trial_type_id or 1) == 2
         if sound_ids:
-            sound_id = random.choice(sound_ids)
-            return sound_id, sound_id
+            sample_id = random.choice(sound_ids)
+            if is_nonmatch:
+                test_choices = [sound_id for sound_id in sound_ids if sound_id != sample_id]
+                if test_choices:
+                    return sample_id, random.choice(test_choices)
+                return sample_id, sample_id + 1
+            return sample_id, sample_id
         sample_id = max(1, self.parse_int(self.sample_sound_id, 1))
         test_id = max(1, self.parse_int(self.test_sound_id, sample_id))
+        if is_nonmatch and test_id == sample_id:
+            test_id = sample_id + 1
+        if not is_nonmatch:
+            test_id = sample_id
         return sample_id, test_id
 
     def parse_dmts_sound_ids(self):
@@ -1876,7 +1923,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         return min(10.0, max(0.0, self.parse_float(self.punish_no_go_fa, 0)))
 
     def apply_trial_timeout(self, row, trial_end_s):
-        if row["TrialType"].endswith("noGo") and row["ResultType"] == "FA":
+        trial_type = row["TrialType"]
+        if (trial_type.endswith("noGo") or trial_type.endswith("DMTS-nonmatch")) and row["ResultType"] == "FA":
             self.active_trial_extra_timeout_s = self.get_punish_no_go_fa_s()
         else:
             self.active_trial_extra_timeout_s = 0.0
@@ -1884,9 +1932,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.last_trial_end_time_s = trial_end_s
         self.next_trial_allowed_time_s = trial_end_s + total_timeout_s
         if self.active_trial_extra_timeout_s:
+            timeout_label = "DMTS non-match FA" if trial_type.endswith("DMTS-nonmatch") else "noGo FA"
             self.plot_queue.put((
                 "log",
-                f"noGo FA timeout added: {self.active_trial_extra_timeout_s:g} s. "
+                f"{timeout_label} timeout added: {self.active_trial_extra_timeout_s:g} s. "
                 f"Next trial allowed after {total_timeout_s:g} s from trial end.",
             ))
 
@@ -1948,11 +1997,13 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
 
-    def classify_trial_sound(self, sound_id):
+    def classify_trial_sound(self, sound_id, test_sound_id=None):
         if self.is_lever_task():
             return 1, "Lever"
         if self.is_dmts_task():
-            return 1, "DMTS"
+            if test_sound_id is not None and int(sound_id) != int(test_sound_id):
+                return 2, "DMTS-nonmatch"
+            return 1, "DMTS-match"
         values = self._parse_number_list(self.sequence_values.get(), default=[sound_id], cast=int)
         if not values or sound_id == values[0]:
             return 1, "GO"
@@ -2156,7 +2207,13 @@ class BehaviorAcquisitionApp(tk.Tk):
 
     def generate_sequence(self, log=True):
         length = max(1, self.parse_int(self.sequence_length, 300))
-        values = self._parse_number_list(self.sequence_values.get(), default=[1, 10], cast=int)
+        default_values = [1, 2] if self.is_dmts_task() else [1, 10]
+        values = self._parse_number_list(self.sequence_values.get(), default=default_values, cast=int)
+        if self.is_dmts_task():
+            values = [1 if value == 1 else 2 for value in values]
+            if len(set(values)) == 1 and self.sequence_values.get().strip() == "1 10":
+                values = [1, 2]
+            self.sequence_values.set(" ".join(str(value) for value in values))
         weights = self._parse_number_list(self.sequence_weights.get(), default=[0.5, 0.5], cast=float)
         if len(weights) != len(values) or sum(weights) <= 0:
             weights = [1.0 / len(values)] * len(values)
@@ -2173,7 +2230,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.sound_sequence_index = 0
         self.update_sequence_display()
         if log:
-            self.log(f"Generated sound sequence: {length} entries from {values}.")
+            label = "DMTS trial-type" if self.is_dmts_task() else "sound"
+            self.log(f"Generated {label} sequence: {length} entries from {values}.")
 
     def _parse_number_list(self, text, default, cast):
         try:
@@ -2189,8 +2247,12 @@ class BehaviorAcquisitionApp(tk.Tk):
             return
         self.sequence_index_var.set(str(self.sound_sequence_index + 1))
         next_id = self.sound_sequence[self.sound_sequence_index]
-        self.sequence_next_var.set(str(next_id))
-        self.sound_id.set(str(next_id))
+        if self.is_dmts_task():
+            next_label = "match" if int(next_id) == 1 else "nonmatch"
+            self.sequence_next_var.set(f"{next_id} {next_label}")
+        else:
+            self.sequence_next_var.set(str(next_id))
+            self.sound_id.set(str(next_id))
 
     def consume_next_sound_id(self):
         if not self.sound_sequence:
@@ -2202,6 +2264,12 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.plot_queue.put(("log", "Sound sequence wrapped to the beginning."))
         self.after(0, self.update_sequence_display)
         return sound_id
+
+    def consume_next_dmts_trial_type(self):
+        trial_type_id = int(self.consume_next_sound_id())
+        if trial_type_id == 2:
+            return 2
+        return 1
 
     def open_bin(self):
         path = filedialog.askopenfilename(initialdir=self.save_root.get(), filetypes=[("BIN files", "*.bin"), ("All files", "*.*")])

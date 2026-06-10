@@ -8,7 +8,7 @@ This document describes the `parameters.dat` fields used by the current protocol
 - `Lever`
 - `DMTS`
 
-`pyBEHAVIOR_v5.py` currently imports and runs Classic Go/No-Go, Lever, and an initial DMTS sample-delay-test structure. DMTS match trials can randomly choose same-ID sample/test pairs from a sound ID list such as `1:16`.
+`pyBEHAVIOR_v5.py` currently imports and runs Classic Go/No-Go, Lever, and a DMTS sample-delay-test structure. DMTS can generate match and non-match trial types, with random sample/test sounds from a sound ID list such as `1:16`.
 
 ## Common Parameters
 
@@ -129,7 +129,7 @@ Saved with:
 TaskType=DMTS
 ```
 
-DMTS means delayed match to sample. The protocol generator can create these parameters and preview the timing. `pyBEHAVIOR_v5.py` now has an initial runtime structure for one sample/test pair: sample sound, delay, test sound, response window, and HIT/MISS scoring from either lick count or IR beam crossing duration. When `DMTSRandomMatchTrials` is enabled, the runtime randomly chooses a sound ID from `DMTSSoundIds` at each trial start and uses that same ID for both the sample and test sounds. The checkbox can be changed during live behavior. The current DMTS HIT rule is strict same-ID matching: if `SampleSoundId` and `TestSoundId` for the active trial are the same, the response criterion is met, and the animal remains in the IR fork until the reward period, the trial is logged as a HIT. For IRFork-triggered DMTS, if the fork event ends before the reward-period decision, the trial stops immediately and is logged as a MISS.
+DMTS means delayed match to sample. The protocol generator can create these parameters and preview the timing. At the beginning of a live session, the closed-loop sequence is regenerated as DMTS trial types: `1` is match and `2` is non-match. Match trials use the same sound ID for sample and test. Non-match trials use different sample and test sound IDs. If `DMTSRandomMatchTrials` is enabled, those IDs are chosen from `DMTSSoundIds`; if it is disabled, the fixed `SampleSoundId`/`TestSoundId` fields are used. Match trials score as HIT when the response criterion is met and MISS when it is not met. Non-match trials score as CR when the response criterion is not met and FA when it is met; FA adds the no-go timeout. HIT, CR, and FA are assigned only if the trial reaches the reward-period decision. For IRFork-triggered DMTS, if the fork event ends before the test sound is presented, the trial stops as a MISS.
 
 DMTS trial starts use the same clean-reset rule as Classic Go/No-Go: after the trial ends and the ITI has elapsed, the trigger signal must be observed below threshold before a new upward crossing can start the next trial.
 
@@ -139,10 +139,14 @@ DMTS trial starts use the same clean-reset rule as Classic Go/No-Go: after the t
 | --- | --- | --- |
 | `TaskType` | Task type | Protocol identifier, `DMTS`. |
 | `MaxTrials` | Max trials | Maximum number of accepted trials. |
+| `GoWeight` | Match weight | Relative probability for DMTS trial type `1`, match. |
+| `NoGoWeight` | Non-match weight | Relative probability for DMTS trial type `2`, non-match. |
+| `GoSoundId` | Match trial type | Fixed runtime value `1` for match trials. |
+| `NoGoSoundId` | Non-match trial type | Fixed runtime value `2` for non-match trials. |
 | `SampleSoundId` | Sample sound ID | First/sample sound stimulus. |
 | `TestSoundId` | Test sound ID | Second/test sound stimulus. |
-| `DMTSRandomMatchTrials` | Random match trials | `0` uses fixed `SampleSoundId`/`TestSoundId`; `1` enables the live checkbox mode that randomly chooses same-ID match trials from `DMTSSoundIds`. |
-| `DMTSSoundIds` | Sound IDs | Sound ID list for randomized match trials. `1:16` randomly selects one ID from 1 through 16 and uses it for both sample and test. Comma/space lists such as `1,2,5,9` are also accepted. |
+| `DMTSRandomMatchTrials` | Random DMTS sounds | `0` uses fixed `SampleSoundId`/`TestSoundId`; `1` chooses match and non-match sample/test sounds from `DMTSSoundIds`. |
+| `DMTSSoundIds` | Sound IDs | Sound ID list for randomized DMTS sounds. `1:16` selects IDs from 1 through 16. Match trials use one ID twice; non-match trials use two different IDs. Comma/space lists such as `1,2,5,9` are also accepted. |
 | `SoundLevel` | Sound level | Multiplicative gain for sound playback. |
 | `RandomSeed` | Random seed | Seed for reproducible trial sequence generation. |
 
