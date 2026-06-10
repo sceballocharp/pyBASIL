@@ -2914,22 +2914,20 @@ class BehaviorAcquisitionApp(tk.Tk):
         left = 54
         right = width - 24
         if width >= 900:
-            right_panel_width = min(270, max(230, width * 0.25))
-            right_panel_left = width - right_panel_width - 24
-            trial_col_width = 112
-            trial_col_left = right_panel_left - trial_col_width - 24
-            main_right = trial_col_left - 28
-            main_top = 72
-            main_bottom = height - 36
-            right_top = 72
-            crossing_bottom = min(height - 220, max(220, int(height * 0.48)))
-            crossing_bottom = min(crossing_bottom, height - 110)
-            self._draw_rate_panel(canvas, completed, left, main_right, main_top, main_bottom)
-            self._draw_recent_trial_column(canvas, completed, trial_col_left, trial_col_left + trial_col_width, main_top, main_bottom)
-            self._draw_crossing_duration_panel(canvas, right_panel_left, width - 24, right_top, crossing_bottom)
-            condition_top = crossing_bottom + 44
-            if condition_top < height - 100:
-                self._draw_condition_panel(canvas, completed, right_panel_left, width - 24, condition_top, height - 36)
+            crossing_width = min(250, max(210, width * 0.22))
+            crossing_left = width - crossing_width - 24
+            condition_width = min(230, max(190, width * 0.20))
+            condition_left = crossing_left - condition_width - 24
+            main_right = condition_left - 28
+            recent_top = 72
+            recent_bottom = min(200, max(160, int(height * 0.34)))
+            rate_top = recent_bottom + 54
+            rate_bottom = height - 36
+            crossing_bottom = min(height - 160, max(220, int(height * 0.48)))
+            self._draw_recent_trial_strip(canvas, completed, left, main_right, recent_top, recent_bottom)
+            self._draw_rate_panel(canvas, completed, left, main_right, rate_top, rate_bottom)
+            self._draw_condition_panel(canvas, completed, condition_left, crossing_left - 24, recent_top, height - 36)
+            self._draw_crossing_duration_panel(canvas, crossing_left, width - 24, recent_top, crossing_bottom)
             return
 
         condition_left = None
@@ -2974,6 +2972,42 @@ class BehaviorAcquisitionApp(tk.Tk):
             split_y = int(52 + (height - 88) * 0.48)
             self._draw_condition_panel(canvas, completed, condition_left, width - 24, 52, split_y)
             self._draw_crossing_duration_panel(canvas, condition_left, width - 24, split_y + panel_gap, height - 36)
+
+    def _draw_recent_trial_strip(self, canvas, rows, left, right, top, bottom):
+        canvas.create_rectangle(left, top, right, bottom, outline="#dddddd")
+        recent = rows[-80:]
+        if not recent:
+            return
+        plot_top = top + 12
+        plot_bottom = bottom - 26
+        plot_width = max(1, right - left - 8)
+        cell_w = plot_width / max(1, len(recent))
+        colors = {
+            "HIT": "#2ca02c",
+            "MISS": "#ff7f0e",
+            "CR": "#1f77b4",
+            "FA": "#d62728",
+        }
+        y_positions = {
+            "HIT": plot_top + 16,
+            "MISS": plot_top + 48,
+            "CR": plot_top + 80,
+            "FA": plot_top + 112,
+        }
+        for result, y in y_positions.items():
+            if y > plot_bottom:
+                continue
+            canvas.create_text(left - 10, y, text=result, anchor="e", fill="#333333")
+            canvas.create_line(left, y, right, y, fill="#eeeeee")
+        for index, row in enumerate(recent):
+            result = row.get("ResultType", "")
+            y = y_positions.get(result, plot_top + 16)
+            if y > plot_bottom:
+                continue
+            x0 = left + index * cell_w + 3
+            x1 = left + (index + 1) * cell_w + 1
+            canvas.create_rectangle(x0, y - 8, max(x0 + 2, x1), y + 8, fill=colors.get(result, "#777777"), outline="")
+        canvas.create_text(left, bottom - 10, text="Recent trial outcomes", anchor="w", fill="#333333")
 
     def _draw_recent_trial_column(self, canvas, rows, left, right, top, bottom):
         canvas.create_rectangle(left, top, right, bottom, outline="#dddddd")
