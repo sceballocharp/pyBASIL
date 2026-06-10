@@ -100,6 +100,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.parameters_log_path = ""
         self.trial_rows = []
         self.parameter_rows = []
+        self.dict_across_trials = {}
+        self.trial_crossing_duration_stored = set()
         self.current_parameter_signature = None
         self.parameter_block_index = 0
         self.active_trial_index = None
@@ -835,6 +837,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.parameters_log_path = ""
         self.trial_rows = []
         self.parameter_rows = []
+        self.dict_across_trials = {}
+        self.trial_crossing_duration_stored = set()
         self.current_parameter_signature = None
         self.parameter_block_index = 0
         self.ensure_sequence_controls()
@@ -1553,6 +1557,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             measure = float(row.get("lick_count") or self.active_crossing_total_s)
             self.maybe_send_go_reward(row, measure, start_s=reward_start_s)
         self.write_trial_log()
+        self.store_trial_crossing_duration(row)
         self.plot_queue.put(("results", None))
         self.plot_queue.put(("log", f"DMTS trial {row['trial']} reached reward period. Same sound={int(same_sound)}. Result={row['ResultType']}."))
 
@@ -1571,9 +1576,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         row["FA"] = 0
         row["ResultType"] = "MISS"
         self.write_trial_log()
+        self.apply_trial_timeout(row, trial_end_s)
+        self.store_trial_crossing_duration(row)
         self.plot_queue.put(("results", None))
         self.plot_queue.put(("log", f"DMTS trial {row['trial']} stopped: {reason}. Result=MISS."))
-        self.apply_trial_timeout(row, trial_end_s)
         self.end_trial_state_interval(trial_end_s)
         self.clear_active_trial()
 
@@ -1629,6 +1635,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         row = self.get_active_trial_row()
         if row is not None:
             self.apply_trial_timeout(row, trial_end_s)
+            self.store_trial_crossing_duration(row)
         self.write_trial_log()
         self.plot_queue.put(("results", None))
         self.end_trial_state_interval(trial_end_s)
@@ -1743,6 +1750,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.maybe_send_go_reward(row, hold_s, start_s=trial_end_s)
         self.apply_trial_timeout(row, trial_end_s)
         self.write_trial_log()
+        self.store_trial_crossing_duration(row)
         self.plot_queue.put(("results", None))
         self.plot_queue.put(("log", f"Lever trial {row['trial']} hold time was {hold_s:.3f} s. Result={row['ResultType']}."))
         self.end_trial_state_interval(trial_end_s)
@@ -1885,6 +1893,7 @@ class BehaviorAcquisitionApp(tk.Tk):
                 self.active_trial_extra_timeout_s = self.get_punish_no_go_fa_s()
         self.apply_trial_timeout(row, trial_end_s)
         self.write_trial_log()
+        self.store_trial_crossing_duration(row)
         self.plot_queue.put(("results", None))
         result = f", {row['ResultType']}" if row["ResultType"] else ""
         self.plot_queue.put(("log", f"Trial {row['trial']} total IR crossing time was {total_s:.3f} s. HIT={row['HIT']}{result}."))
@@ -1916,6 +1925,7 @@ class BehaviorAcquisitionApp(tk.Tk):
                 self.active_trial_extra_timeout_s = self.get_punish_no_go_fa_s()
         self.apply_trial_timeout(row, trial_end_s)
         self.write_trial_log()
+        self.store_trial_crossing_duration(row)
         self.plot_queue.put(("results", None))
         result = f", {row['ResultType']}" if row["ResultType"] else ""
         self.plot_queue.put(("log", f"Trial {row['trial']} lick count was {lick_count}. HIT={row['HIT']}{result}."))
@@ -1941,6 +1951,21 @@ class BehaviorAcquisitionApp(tk.Tk):
                 f"{timeout_label} timeout added: {self.active_trial_extra_timeout_s:g} s. "
                 f"Next trial allowed after {total_timeout_s:g} s from trial end.",
             ))
+
+    def store_trial_crossing_duration(self, row):
+        if row is None:
+            return
+        trial_number = row.get("trial")
+        if trial_number in self.trial_crossing_duration_stored:
+            return
+        value = row.get("crossing_duration_s", "")
+        try:
+            crossing_duration_s = float(value)
+        except Exception:
+            return
+        trial_type = row.get("TrialType", "unknown")
+        self.dict_across_trials.setdefault(trial_type, []).append(crossing_duration_s)
+        self.trial_crossing_duration_stored.add(trial_number)
 
     def maybe_send_go_reward(self, row, total_s, start_s=None):
         if self.active_reward_decided:
@@ -2926,7 +2951,10 @@ class BehaviorAcquisitionApp(tk.Tk):
 
         self._draw_rate_panel(canvas, completed, left, right, rate_top, rate_bottom)
         if condition_left is not None:
-            self._draw_condition_panel(canvas, completed, condition_left, width - 24, 52, height - 36)
+            panel_gap = 42
+            split_y = int(52 + (height - 88) * 0.48)
+            self._draw_condition_panel(canvas, completed, condition_left, width - 24, 52, split_y)
+            self._draw_crossing_duration_panel(canvas, condition_left, width - 24, split_y + panel_gap, height - 36)
 
     def _draw_condition_panel(self, canvas, rows, left, right, top, bottom):
         canvas.create_rectangle(left, top, right, bottom, outline="#dddddd")
@@ -2990,6 +3018,57 @@ class BehaviorAcquisitionApp(tk.Tk):
             canvas.create_text(bar_right, y - 10, text=f"{fraction:.0%} n={stats['total']}", anchor="e", fill="#333333", font=("Segoe UI", 8))
         if hidden_count:
             canvas.create_text(left + 8, bottom - 6, text=f"+{hidden_count} more", anchor="sw", fill="#555555", font=("Segoe UI", 8))
+
+    def _draw_crossing_duration_panel(self, canvas, left, right, top, bottom):
+        canvas.create_rectangle(left, top, right, bottom, outline="#dddddd")
+        canvas.create_text(left, top - 20, text="Crossing duration by trial type", anchor="w", fill="#333333")
+        groups = [(trial_type, values) for trial_type, values in self.dict_across_trials.items() if values]
+        if not groups:
+            canvas.create_text((left + right) / 2, (top + bottom) / 2, text="No IR durations yet", fill="#555555", font=("Segoe UI", 8))
+            return
+
+        def group_sort_key(item):
+            trial_type = str(item[0])
+            try:
+                prefix = int(trial_type.split(maxsplit=1)[0])
+            except Exception:
+                prefix = 99
+            return (prefix, trial_type)
+
+        groups = sorted(groups, key=group_sort_key)[:6]
+        all_values = [value for _trial_type, values in groups for value in values]
+        y_max = max(0.1, max(all_values))
+        y_max *= 1.12
+        plot_left = left + 32
+        plot_right = right - 12
+        plot_top = top + 24
+        plot_bottom = bottom - 38
+        if plot_bottom <= plot_top:
+            return
+        for fraction in (0.0, 0.5, 1.0):
+            y = plot_bottom - fraction * (plot_bottom - plot_top)
+            canvas.create_line(plot_left, y, plot_right, y, fill="#eeeeee")
+            canvas.create_text(plot_left - 8, y, text=f"{fraction * y_max:.1f}", anchor="e", fill="#555555", font=("Segoe UI", 8))
+
+        colors = ["#2ca02c", "#1f77b4", "#ff7f0e", "#d62728", "#9467bd", "#17a589"]
+        group_width = (plot_right - plot_left) / max(1, len(groups))
+        for index, (trial_type, values) in enumerate(groups):
+            center_x = plot_left + group_width * (index + 0.5)
+            color = colors[index % len(colors)]
+            recent_values = values[-40:]
+            for value_index, value in enumerate(recent_values):
+                jitter = ((value_index % 7) - 3) * min(3.0, group_width / 16)
+                x = center_x + jitter
+                y = plot_bottom - min(value, y_max) / y_max * (plot_bottom - plot_top)
+                canvas.create_oval(x - 2, y - 2, x + 2, y + 2, fill=color, outline="")
+            median_value = statistics.median(values)
+            median_y = plot_bottom - min(median_value, y_max) / y_max * (plot_bottom - plot_top)
+            canvas.create_line(center_x - group_width * 0.25, median_y, center_x + group_width * 0.25, median_y, fill="#222222", width=2)
+            label = str(trial_type).split(maxsplit=1)[-1]
+            if len(label) > 10:
+                label = label[:9] + "."
+            canvas.create_text(center_x, bottom - 22, text=label, anchor="n", fill="#333333", font=("Segoe UI", 8))
+            canvas.create_text(center_x, bottom - 8, text=f"n={len(values)}", anchor="n", fill="#555555", font=("Segoe UI", 8))
 
     def _draw_rate_panel(self, canvas, rows, left, right, top, bottom):
         canvas.create_rectangle(left, top, right, bottom, outline="#dddddd")
