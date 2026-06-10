@@ -2913,6 +2913,25 @@ class BehaviorAcquisitionApp(tk.Tk):
 
         left = 54
         right = width - 24
+        if width >= 900:
+            right_panel_width = min(270, max(230, width * 0.25))
+            right_panel_left = width - right_panel_width - 24
+            trial_col_width = 112
+            trial_col_left = right_panel_left - trial_col_width - 24
+            main_right = trial_col_left - 28
+            main_top = 72
+            main_bottom = height - 36
+            right_top = 72
+            crossing_bottom = min(height - 220, max(220, int(height * 0.48)))
+            crossing_bottom = min(crossing_bottom, height - 110)
+            self._draw_rate_panel(canvas, completed, left, main_right, main_top, main_bottom)
+            self._draw_recent_trial_column(canvas, completed, trial_col_left, trial_col_left + trial_col_width, main_top, main_bottom)
+            self._draw_crossing_duration_panel(canvas, right_panel_left, width - 24, right_top, crossing_bottom)
+            condition_top = crossing_bottom + 44
+            if condition_top < height - 100:
+                self._draw_condition_panel(canvas, completed, right_panel_left, width - 24, condition_top, height - 36)
+            return
+
         condition_left = None
         if width >= 760:
             condition_width = min(240, max(190, width * 0.28))
@@ -2955,6 +2974,38 @@ class BehaviorAcquisitionApp(tk.Tk):
             split_y = int(52 + (height - 88) * 0.48)
             self._draw_condition_panel(canvas, completed, condition_left, width - 24, 52, split_y)
             self._draw_crossing_duration_panel(canvas, condition_left, width - 24, split_y + panel_gap, height - 36)
+
+    def _draw_recent_trial_column(self, canvas, rows, left, right, top, bottom):
+        canvas.create_rectangle(left, top, right, bottom, outline="#dddddd")
+        canvas.create_text(left, top - 20, text="Recent trials", anchor="w", fill="#333333")
+        recent = rows[-80:]
+        if not recent:
+            return
+        colors = {
+            "HIT": "#2ca02c",
+            "MISS": "#ff7f0e",
+            "CR": "#1f77b4",
+            "FA": "#d62728",
+        }
+        result_order = ("HIT", "MISS", "CR", "FA")
+        plot_top = top + 26
+        plot_bottom = bottom - 24
+        col_w = max(1, (right - left - 18) / len(result_order))
+        for index, result in enumerate(result_order):
+            x = left + 10 + index * col_w + col_w / 2
+            canvas.create_text(x, top + 12, text=result[0], anchor="center", fill="#555555", font=("Segoe UI", 8))
+            canvas.create_line(x, plot_top, x, plot_bottom, fill="#eeeeee")
+        row_h = max(3, (plot_bottom - plot_top) / max(1, len(recent)))
+        for index, row in enumerate(recent):
+            result = row.get("ResultType", "")
+            if result not in result_order:
+                continue
+            y = plot_top + index * row_h + row_h / 2
+            x = left + 10 + result_order.index(result) * col_w + col_w / 2
+            canvas.create_rectangle(x - 4, y - 2, x + 4, y + 2, fill=colors.get(result, "#777777"), outline="")
+            trial = row.get("trial", "")
+            if index == 0 or index == len(recent) - 1 or (isinstance(trial, int) and trial % 20 == 0):
+                canvas.create_text(right - 4, y, text=str(trial), anchor="e", fill="#777777", font=("Segoe UI", 7))
 
     def _draw_condition_panel(self, canvas, rows, left, right, top, bottom):
         canvas.create_rectangle(left, top, right, bottom, outline="#dddddd")
