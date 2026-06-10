@@ -102,7 +102,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.parameter_rows = []
         self.current_parameter_signature = None
         self.parameter_block_index = 0
-        self.generate_sequence(log=False)
         self.active_trial_index = None
         self.active_trial_start_s = None
         self.active_trial_end_s = None
@@ -288,6 +287,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         seq = ttk.LabelFrame(body, text="Closed Loop Sequence")
         seq.grid(row=0, column=1, sticky="nsew", pady=(0, 6))
         self.sequence_length = tk.StringVar(value="300")
+        self.sequence_lenght = self.sequence_length
+        setattr(self, "self.sequence_length", self.sequence_length)
         self.sequence_values = tk.StringVar(value="1 10")
         self.sequence_weights = tk.StringVar(value="0.5 0.5")
         self.sequence_index_var = tk.StringVar(value="0")
@@ -836,6 +837,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.parameter_rows = []
         self.current_parameter_signature = None
         self.parameter_block_index = 0
+        self.ensure_sequence_controls()
+        self.generate_sequence(log=False)
         self.active_trial_index = None
         self.active_trial_start_s = None
         self.active_trial_end_s = None
@@ -2206,6 +2209,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             task.close()
 
     def generate_sequence(self, log=True):
+        self.ensure_sequence_controls()
         length = max(1, self.parse_int(self.sequence_length, 300))
         default_values = [1, 2] if self.is_dmts_task() else [1, 10]
         values = self._parse_number_list(self.sequence_values.get(), default=default_values, cast=int)
@@ -2232,6 +2236,24 @@ class BehaviorAcquisitionApp(tk.Tk):
         if log:
             label = "DMTS trial-type" if self.is_dmts_task() else "sound"
             self.log(f"Generated {label} sequence: {length} entries from {values}.")
+
+    def ensure_sequence_controls(self):
+        if not hasattr(self, "sequence_length"):
+            self.sequence_length = tk.StringVar(value="300")
+        self.sequence_lenght = self.sequence_length
+        setattr(self, "self.sequence_length", self.sequence_length)
+        if not hasattr(self, "sequence_values"):
+            self.sequence_values = tk.StringVar(value="1 2" if self.is_dmts_task() else "1 10")
+        if not hasattr(self, "sequence_weights"):
+            self.sequence_weights = tk.StringVar(value="0.5 0.5")
+        if not hasattr(self, "sequence_index_var"):
+            self.sequence_index_var = tk.StringVar(value="0")
+        if not hasattr(self, "sequence_next_var"):
+            self.sequence_next_var = tk.StringVar(value="1")
+        if not hasattr(self, "sound_sequence"):
+            self.sound_sequence = []
+        if not hasattr(self, "sound_sequence_index"):
+            self.sound_sequence_index = 0
 
     def _parse_number_list(self, text, default, cast):
         try:
