@@ -1257,6 +1257,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         timestamp = datetime.now().isoformat(timespec="milliseconds")
         rate = self.parse_float(self.rate_hz, 1000)
         trigger_sample = int(round(trigger_time_s * rate))
+        params = self.get_current_parameters()
         trial_row = {
             "trial": self.trial_index,
             "timestamp": timestamp,
@@ -1270,9 +1271,10 @@ class BehaviorAcquisitionApp(tk.Tk):
             "FA": "",
             "ResultType": "",
             "sound_id": sound_id,
+            "sample_sound_id": sound_id if self.is_dmts_task() else params["SampleSoundId"],
+            "test_sound_id": trial_test_sound_id if self.is_dmts_task() and trial_test_sound_id is not None else params["TestSoundId"],
             "lick_count": "",
         }
-        params = self.get_current_parameters()
         parameter_row = {
             "trial": self.trial_index,
             "timestamp": timestamp,
@@ -2514,12 +2516,16 @@ class BehaviorAcquisitionApp(tk.Tk):
             trials = h5f.require_group("intervals").require_group("trials")
             trial_ids = [int(row.get("trial", index + 1)) for index, row in enumerate(trial_rows)]
             sound_ids = [int(row.get("sound_id", 0) or 0) for row in trial_rows]
+            sample_sound_ids = [int(row.get("sample_sound_id", row.get("sound_id", 0)) or 0) for row in trial_rows]
+            test_sound_ids = [int(row.get("test_sound_id", row.get("sound_id", 0)) or 0) for row in trial_rows]
             hmcf = [self.nwb_contract_hmcf(row) for row in trial_rows]
             trial_types = [self.nwb_contract_trial_type(row) for row in trial_rows]
             self.replace_hdf5_dataset(trials, "id", trial_ids)
             self.replace_hdf5_dataset(trials, "sound_ids", sound_ids)
+            self.replace_hdf5_dataset(trials, "sample_sound_ids", sample_sound_ids)
+            self.replace_hdf5_dataset(trials, "test_sound_ids", test_sound_ids)
             self.replace_hdf5_dataset(trials, "HMCF", hmcf, dtype=utf8)
-            self.replace_hdf5_dataset(trials, "trial_type", trial_types, dtype=utf8)
+            self.replace_hdf5_dataset(trials, "trial_type", trial_types)
 
             parameters = h5f.require_group("acquisition").require_group("Parameters")
             parameter_items = self.build_nwb_contract_parameters(rate, len(trial_rows))
@@ -2594,6 +2600,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "/acquisition/IRFork/data",
             "/intervals/trials/id",
             "/intervals/trials/sound_ids",
+            "/intervals/trials/sample_sound_ids",
+            "/intervals/trials/test_sound_ids",
             "/intervals/trials/HMCF",
             "/intervals/trials/trial_type",
             "/file_create_date",
@@ -2608,6 +2616,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             trial_count = len(h5f["/intervals/trials/id"])
             aligned_paths = (
                 "/intervals/trials/sound_ids",
+                "/intervals/trials/sample_sound_ids",
+                "/intervals/trials/test_sound_ids",
                 "/intervals/trials/HMCF",
                 "/intervals/trials/trial_type",
             )
@@ -2620,12 +2630,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             if parameter_key_count != parameter_value_count:
                 raise RuntimeError("NWB contract parameter key/value length mismatch.")
 
-            trial_type_values = {
-                self.decode_hdf5_string(value)
-                for value in h5f["/intervals/trials/trial_type"][()]
-                if self.decode_hdf5_string(value)
-            }
-            bad_trial_types = trial_type_values - {"Go", "NoGo", "DMTS"}
+            trial_type_values = set(int(value) for value in h5f["/intervals/trials/trial_type"][()])
+            bad_trial_types = trial_type_values - {0, 1, 2}
             if bad_trial_types:
                 raise RuntimeError(f"NWB contract trial_type has unsupported values: {sorted(bad_trial_types)}")
 
@@ -2662,13 +2668,10 @@ class BehaviorAcquisitionApp(tk.Tk):
 
     def nwb_contract_trial_type(self, row):
         trial_type = str(row.get("TrialType", ""))
-        if trial_type.endswith("GO"):
-            return "Go"
-        if trial_type.endswith("noGo"):
-            return "NoGo"
-        if trial_type.endswith("DMTS"):
-            return "DMTS"
-        return ""
+        try:
+            return int(trial_type.split(maxsplit=1)[0])
+        except Exception:
+            return 0
 
     def nwb_contract_hmcf(self, row):
         result = str(row.get("ResultType", "")).upper()
