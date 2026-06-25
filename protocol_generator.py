@@ -57,6 +57,7 @@ PARAMETERS = [
     Parameter("LeverRequireRelease", "Require release", "0", "Lever", "choice", ("0", "1")),
     Parameter("LeverHoldTime_s", "Lever hold time s", "1", "LeverTiming", "float"),
     Parameter("LeverStartDebounce_s", "Start debounce s", "0.1", "LeverTiming", "float"),
+    Parameter("LeverReleaseDebounce_s", "Release debounce s", "0.05", "LeverTiming", "float"),
     Parameter("LeverReleaseWindow_s", "Release window s", "0.25", "LeverTiming", "float"),
     Parameter("LeverRewardduration_ms", "Reward duration ms", "40", "LeverOutcome", "float"),
     Parameter("LeverRewardGo", "RewardGo Prob", "1", "LeverOutcome", "float"),
@@ -412,6 +413,8 @@ class ProtocolGenerator(tk.Tk):
                 errors.append("Lever hold time s must be greater than 0.")
             if self.parse_float("LeverStartDebounce_s", -1) < 0:
                 errors.append("Start debounce s must be positive or 0.")
+            if self.parse_float("LeverReleaseDebounce_s", -1) < 0:
+                errors.append("Release debounce s must be positive or 0.")
             if self.parse_float("LeverReleaseWindow_s", -1) < 0:
                 errors.append("Release window s must be positive or 0.")
             if not 0 <= self.parse_float("LeverRewardGo", -1) <= 1:

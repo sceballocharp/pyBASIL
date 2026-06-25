@@ -114,6 +114,7 @@ TaskType=Lever
 | `SoundLevel` | Sound level | Multiplicative gain for sound playback. |
 | `LeverHoldTime_s` | Lever hold time s | Time the lever signal must remain above threshold before reward logic is triggered. |
 | `LeverStartDebounce_s` | Start debounce s | Time a new upward crossing must remain above `LeverThreshold` before the trial is accepted. Default is `0.1` s. |
+| `LeverReleaseDebounce_s` | Release debounce s | Time the lever signal must remain below `LeverThreshold` before a release is accepted. Default is `0.05` s. This can be changed live during behavior. |
 | `LeverRequireRelease` | Require release | Optional second-level lever behavior. `0` rewards once hold time is reached; `1` rewards when the animal releases after crossing `LeverHoldTime_s`. Releasing before `LeverHoldTime_s` is a MISS. |
 | `LeverReleaseWindow_s` | Release window s | Reserved lever tolerance parameter. Currently saved/imported for compatibility but not used while release rewards are based only on `hold_s >= LeverHoldTime_s`. |
 | `Rewardduration_ms` | Reward duration ms | Water valve/trigger pulse duration in ms. |

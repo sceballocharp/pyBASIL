@@ -13,6 +13,7 @@ GoSoundId=1
 SoundLevel=1
 LeverHoldTime_s=2
 LeverStartDebounce_s=0.1
+LeverReleaseDebounce_s=0.05
 LeverReleaseWindow_s=0.25
 LeverRequireRelease=0
 Rewardduration_ms=30

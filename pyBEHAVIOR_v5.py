@@ -333,6 +333,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.lick_threshold = tk.StringVar(value="")
         self.lever_hold_time_s = tk.StringVar(value="1")
         self.lever_start_debounce_s = tk.StringVar(value="0.1")
+        self.lever_release_debounce_s = tk.StringVar(value="0.05")
         self.lever_release_window_s = tk.StringVar(value="0.25")
         self.sample_sound_id = tk.StringVar(value="1")
         self.test_sound_id = tk.StringVar(value="1")
@@ -359,6 +360,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.lever_hold_widgets = self._entry(trial, 0, "Lever hold s", self.lever_hold_time_s, width=6, row=3)
         self.lever_start_debounce_widgets = self._entry(trial, 0, "Start debounce s", self.lever_start_debounce_s, width=6, row=4)
         self.lever_release_window_widgets = self._entry(trial, 2, "Release window s", self.lever_release_window_s, width=6, row=4)
+        self.lever_release_debounce_widgets = self._entry(trial, 4, "Release debounce s", self.lever_release_debounce_s, width=6, row=4)
         self.sample_sound_widgets = self._entry(trial, 0, "Sample ID", self.sample_sound_id, width=6, row=4)
         self.test_sound_widgets = self._entry(trial, 2, "Test ID", self.test_sound_id, width=6, row=4)
         self.dmts_fork_grace_widgets = self._entry(trial, 4, "Fork grace s", self.dmts_fork_grace_s, width=6, row=4)
@@ -405,6 +407,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.set_widget_pair_visible(self.lever_hold_widgets, is_lever, row=3, col=0)
         self.set_widget_pair_visible(self.lever_start_debounce_widgets, is_lever, row=4, col=0)
         self.set_widget_pair_visible(self.lever_release_window_widgets, is_lever, row=4, col=2)
+        self.set_widget_pair_visible(self.lever_release_debounce_widgets, is_lever, row=4, col=4)
         if is_lever:
             self.lever_release_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
         else:
@@ -708,6 +711,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "LeverThreshold": self.threshold_v,
             "LeverHoldTime_s": self.lever_hold_time_s,
             "LeverStartDebounce_s": self.lever_start_debounce_s,
+            "LeverReleaseDebounce_s": self.lever_release_debounce_s,
             "LeverReleaseWindow_s": self.lever_release_window_s,
             "LeverRequireRelease": self.lever_require_release,
             "SampleSoundId": self.sample_sound_id,
@@ -1204,6 +1208,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "LeverThreshold": self.threshold_v.get(),
             "LeverHoldTime_s": self.lever_hold_time_s.get(),
             "LeverStartDebounce_s": self.lever_start_debounce_s.get(),
+            "LeverReleaseDebounce_s": self.lever_release_debounce_s.get(),
             "LeverReleaseWindow_s": self.lever_release_window_s.get(),
             "LeverRequireRelease": int(self.lever_require_release.get()),
             "MaxTrials": self.max_trials.get(),
@@ -1263,6 +1268,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "LeverThreshold",
             "LeverHoldTime_s",
             "LeverStartDebounce_s",
+            "LeverReleaseDebounce_s",
             "LeverReleaseWindow_s",
             "LeverRequireRelease",
             "MaxTrials",
@@ -1316,6 +1322,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "threshold_v": threshold,
             "lever_hold_time_s": self.parse_float_value(params["LeverHoldTime_s"], 1),
             "lever_start_debounce_s": self.parse_float_value(params["LeverStartDebounce_s"], 0.1),
+            "lever_release_debounce_s": self.parse_float_value(params["LeverReleaseDebounce_s"], 0.05),
             "lever_release_window_s": self.parse_float_value(params["LeverReleaseWindow_s"], 0.25),
             "lever_require_release": params["LeverRequireRelease"],
             "iti_s": iti,
@@ -1708,7 +1715,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         return max(0.0, self.parse_float(self.lever_hold_time_s, 1))
 
     def get_lever_release_debounce_s(self):
-        return 0.05
+        return max(0.0, self.parse_float(self.lever_release_debounce_s, 0.05))
 
     def get_lever_start_debounce_s(self):
         return max(0.0, self.parse_float(self.lever_start_debounce_s, 0.1))
