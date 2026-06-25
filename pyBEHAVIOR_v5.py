@@ -85,6 +85,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.full_sound_outputs = []
         self.irfork_file = None
         self.soundcopy_file = None
+        self.trial_state_file = None
         self.exp_folder = ""
         self.irfork_was_high = False
         self.last_trigger_time = -1e12
@@ -992,11 +993,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.soundcopy_buffer.extend(raw_soundcopy_values)
         self.full_soundcopy_buffer.extend(raw_soundcopy_values)
 
-        if self.irfork_file is not None:
-            self.irfork_file.write(struct.pack(f"{len(rows)}d", *raw_ir_values))
-        if self.soundcopy_file is not None and soundcopy_col is not None:
-            self.soundcopy_file.write(struct.pack(f"{len(rows)}d", *raw_soundcopy_values))
-
         window = self.parse_float(self.window_s, 10)
         min_time = self.time_buffer[-1] - window
         while self.time_buffer and self.time_buffer[0] < min_time:
@@ -1007,12 +1003,34 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.current_ir_baseline = statistics.median(self.data_buffer) if self.subtract_baseline.get() and self.data_buffer else 0.0
         corrected_ir_values = [value - self.current_ir_baseline for value in raw_ir_values]
         self.check_trigger(times, corrected_ir_values)
+        if self.irfork_file is not None:
+            self.irfork_file.write(struct.pack(f"{len(rows)}d", *raw_ir_values))
+        if self.soundcopy_file is not None and soundcopy_col is not None:
+            self.soundcopy_file.write(struct.pack(f"{len(rows)}d", *raw_soundcopy_values))
+        if self.trial_state_file is not None:
+            trial_state_values = self.get_trial_state_values(times)
+            self.trial_state_file.write(struct.pack(f"{len(trial_state_values)}d", *trial_state_values))
         self.plot_queue.put(("plot", (list(self.time_buffer), list(self.data_buffer))))
 
     def get_soundcopy_column(self, rows):
         if not rows or len(rows[0]) < 2:
             return None
         return 1
+
+    def get_trial_state_values(self, times):
+        if not times:
+            return []
+        if not self.trial_state_intervals:
+            return [0.0] * len(times)
+        values = []
+        intervals = list(self.trial_state_intervals)
+        for sample_time_s in times:
+            in_trial = any(
+                start_s <= sample_time_s and (end_s is None or sample_time_s < end_s)
+                for start_s, end_s in intervals
+            )
+            values.append(1.0 if in_trial else 0.0)
+        return values
 
     def check_trigger(self, times, ir_values):
         threshold = self.get_current_trigger_threshold()
@@ -1125,7 +1143,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.prepare_session_folder()
         self.irfork_file = open(os.path.join(self.exp_folder, "IRFork.bin"), "wb")
         self.soundcopy_file = open(os.path.join(self.exp_folder, "SoundCopy.bin"), "wb")
-        self.log(f"Writing IRFork.bin and SoundCopy.bin: {self.exp_folder}")
+        self.trial_state_file = open(os.path.join(self.exp_folder, "TrialState.bin"), "wb")
+        self.log(f"Writing IRFork.bin, SoundCopy.bin, and TrialState.bin: {self.exp_folder}")
 
     def close_irfork_file(self):
         if self.irfork_file is not None:
@@ -1136,6 +1155,10 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.soundcopy_file.close()
             self.soundcopy_file = None
             self.log("Closed SoundCopy.bin.")
+        if self.trial_state_file is not None:
+            self.trial_state_file.close()
+            self.trial_state_file = None
+            self.log("Closed TrialState.bin.")
 
     def get_current_parameters(self):
         sequence_values = self.sequence_values.get().split()
@@ -1262,6 +1285,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "trial": self.trial_index,
             "timestamp": timestamp,
             "trigger_time_s": f"{trigger_time_s:.6f}",
+            "trial_end_s": "",
             "trigger_sample": trigger_sample,
             "crossing_duration_s": "",
             "TrialType": f"{trial_type_id} {trial_type}",
@@ -1560,6 +1584,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         if hit:
             measure = float(row.get("lick_count") or self.active_crossing_total_s)
             self.maybe_send_go_reward(row, measure, start_s=reward_start_s)
+        self.set_trial_end_time(row, self.active_trial_end_s if self.active_trial_end_s is not None else reward_start_s)
         self.write_trial_log()
         self.store_trial_crossing_duration(row)
         self.plot_queue.put(("results", None))
@@ -1579,9 +1604,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         row["CR"] = 0
         row["FA"] = 0
         row["ResultType"] = "MISS"
-        self.write_trial_log()
+        self.set_trial_end_time(row, trial_end_s)
         self.apply_trial_timeout(row, trial_end_s)
         self.store_trial_crossing_duration(row)
+        self.write_trial_log()
         self.plot_queue.put(("results", None))
         self.plot_queue.put(("log", f"DMTS trial {row['trial']} stopped: {reason}. Result=MISS."))
         self.end_trial_state_interval(trial_end_s)
@@ -1638,6 +1664,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.finish_active_dmts_reward_period(reward_start_s)
         row = self.get_active_trial_row()
         if row is not None:
+            self.set_trial_end_time(row, trial_end_s)
             self.apply_trial_timeout(row, trial_end_s)
             self.store_trial_crossing_duration(row)
         self.write_trial_log()
@@ -1753,6 +1780,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         if success:
             self.maybe_send_go_reward(row, hold_s, start_s=trial_end_s)
         self.apply_trial_timeout(row, trial_end_s)
+        self.set_trial_end_time(row, trial_end_s)
         self.write_trial_log()
         self.store_trial_crossing_duration(row)
         self.plot_queue.put(("results", None))
@@ -1762,6 +1790,10 @@ class BehaviorAcquisitionApp(tk.Tk):
 
     def write_trial_log(self):
         self.write_csv(self.trial_log_path, self.trial_rows)
+
+    def set_trial_end_time(self, row, trial_end_s):
+        if row is not None and trial_end_s is not None:
+            row["trial_end_s"] = f"{trial_end_s:.6f}"
 
     def write_csv(self, path, rows):
         if not path or not rows:
@@ -1896,6 +1928,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             if row["FA"]:
                 self.active_trial_extra_timeout_s = self.get_punish_no_go_fa_s()
         self.apply_trial_timeout(row, trial_end_s)
+        self.set_trial_end_time(row, trial_end_s)
         self.write_trial_log()
         self.store_trial_crossing_duration(row)
         self.plot_queue.put(("results", None))
@@ -1928,6 +1961,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             if row["FA"]:
                 self.active_trial_extra_timeout_s = self.get_punish_no_go_fa_s()
         self.apply_trial_timeout(row, trial_end_s)
+        self.set_trial_end_time(row, trial_end_s)
         self.write_trial_log()
         self.store_trial_crossing_duration(row)
         self.plot_queue.put(("results", None))
