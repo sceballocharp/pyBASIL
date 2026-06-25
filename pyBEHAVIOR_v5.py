@@ -1438,8 +1438,9 @@ class BehaviorAcquisitionApp(tk.Tk):
             elif self.active_lever_low_start_s is not None:
                 low_duration_s = sample_time_s - self.active_lever_low_start_s
                 if low_duration_s >= self.get_lever_release_debounce_s():
-                    success = self.is_lever_release_success(self.active_lever_low_start_s)
-                    self.finish_active_lever_trial(self.active_lever_low_start_s, success=success)
+                    release_time_s = self.active_lever_low_start_s
+                    success = self.is_lever_release_success(release_time_s)
+                    self.finish_active_lever_trial(sample_time_s, success=success, hold_end_s=release_time_s)
             return
 
         if sample_time_s < self.next_trial_allowed_time_s:
@@ -1769,14 +1770,16 @@ class BehaviorAcquisitionApp(tk.Tk):
                 self.write_trial_log()
                 self.plot_queue.put(("results", None))
 
-    def finish_active_lever_trial(self, trial_end_s, success):
+    def finish_active_lever_trial(self, trial_end_s, success, hold_end_s=None):
         row = self.get_active_trial_row()
         if row is None:
             self.clear_active_trial()
             return
         hold_s = 0.0
+        if hold_end_s is None:
+            hold_end_s = trial_end_s
         if self.active_high_start_s is not None:
-            hold_s = max(0.0, trial_end_s - self.active_high_start_s)
+            hold_s = max(0.0, hold_end_s - self.active_high_start_s)
         success = bool(success or row["HIT"])
         row["crossing_duration_s"] = f"{hold_s:.6f}"
         row["HIT"] = int(success)
