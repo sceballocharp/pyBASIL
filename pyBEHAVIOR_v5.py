@@ -1073,6 +1073,13 @@ class BehaviorAcquisitionApp(tk.Tk):
                 self.trigger_reset_seen_for_new_trial = False
                 continue
 
+            if self.is_lick_trigger() and not self.is_dmts_task():
+                if self.start_classic_trial(sample_time_s, threshold, "ITI elapsed"):
+                    if crossed_up:
+                        self.add_active_lick()
+                    self.evaluate_active_trial(sample_time_s)
+                continue
+
             if not is_high:
                 self.trigger_reset_seen_for_new_trial = True
 
@@ -1089,11 +1096,9 @@ class BehaviorAcquisitionApp(tk.Tk):
 
             dmts_trial_type_id = self.consume_next_dmts_trial_type() if self.is_dmts_task() else None
             dmts_sample_id, dmts_test_id = self.choose_dmts_trial_sound_ids(dmts_trial_type_id) if self.is_dmts_task() else (None, None)
-            sound_id = dmts_sample_id if self.is_dmts_task() else (
-                self.consume_next_sound_id() if self.play_sound_on_crossing.get() else self.parse_int(self.sound_id, 1)
-            )
             iti = self.draw_trial_iti_s()
             if self.is_dmts_task():
+                sound_id = dmts_sample_id
                 trial_type = "DMTS-match" if dmts_trial_type_id == 1 else "DMTS-nonmatch"
                 self.create_trial(
                     sound_id,
@@ -1105,21 +1110,14 @@ class BehaviorAcquisitionApp(tk.Tk):
                     trial_type=trial_type,
                 )
             else:
-                self.create_trial(sound_id, sample_time_s, threshold, iti)
+                self.start_classic_trial(sample_time_s, threshold, f"{self.trigger_type.get().strip() or 'Trigger'} crossed {threshold:g} V")
+                continue
             if self.is_dmts_task():
                 self.start_active_dmts_trial(sample_time_s, iti, dmts_sample_id, dmts_test_id)
-            else:
-                self.start_active_trial(sample_time_s, iti)
-            if self.is_lick_trigger() and not self.is_dmts_task():
-                self.add_active_lick()
-            if self.play_sound_on_crossing.get() and not self.is_dmts_task():
-                self.play_loaded_sound(sound_id=sound_id, from_worker=True, start_s=sample_time_s)
             self.last_trigger_time = sample_time_s
             trial_type_id, trial_type = self.classify_trial_sound(sound_id, dmts_test_id)
             trigger_name = self.trigger_type.get().strip() or "Trigger"
             self.plot_queue.put(("log", f"{trigger_name} crossed {threshold:g} V. Trial {self.trial_index} is type {trial_type_id} {trial_type}, sound id {sound_id}."))
-            if not self.is_dmts_task():
-                self.evaluate_active_trial(sample_time_s)
 
     def prepare_session_folder(self):
         date_folder = datetime.now().strftime("%Y%m%d")
@@ -1359,6 +1357,22 @@ class BehaviorAcquisitionApp(tk.Tk):
         if rand_max_s < rand_min_s:
             rand_min_s, rand_max_s = rand_max_s, rand_min_s
         return base_iti_s + random.uniform(rand_min_s, rand_max_s)
+
+    def start_classic_trial(self, trial_start_s, threshold, start_reason):
+        max_trials = max(0, self.parse_int(self.max_trials, 0))
+        if max_trials and self.trial_index >= max_trials:
+            self.plot_queue.put(("log", f"Trial start ignored: max trials {max_trials} reached."))
+            return False
+        sound_id = self.consume_next_sound_id() if self.play_sound_on_crossing.get() else self.parse_int(self.sound_id, 1)
+        iti = self.draw_trial_iti_s()
+        self.create_trial(sound_id, trial_start_s, threshold, iti)
+        self.start_active_trial(trial_start_s, iti)
+        if self.play_sound_on_crossing.get():
+            self.play_loaded_sound(sound_id=sound_id, from_worker=True, start_s=trial_start_s)
+        self.last_trigger_time = trial_start_s
+        trial_type_id, trial_type = self.classify_trial_sound(sound_id)
+        self.plot_queue.put(("log", f"{start_reason}. Trial {self.trial_index} is type {trial_type_id} {trial_type}, sound id {sound_id}."))
+        return True
 
     def start_active_trial(self, trigger_time_s, iti_s):
         response_window_s = max(0.0, self.parse_float(self.response_window_s, 2))

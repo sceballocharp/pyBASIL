@@ -96,7 +96,7 @@ Minlickcount=<count>
 
 A response is scored when the signal crosses above `Lickthreshold` at least `Minlickcount` times during the response window.
 
-Classic Go/No-Go trials also require a clean reset between trials: after the trial ends and the ITI has elapsed, the trigger signal must be observed below the active threshold before the next upward crossing can start a new trial. If ITI ends while the signal is still above threshold, no trial starts until the signal goes low and crosses upward again.
+Classic Go/No-Go starts trials differently depending on the trigger source. With `TriggerTypeDropDown=IRFork`, after the trial ends and the ITI has elapsed, the trigger signal must be observed below the active threshold before the next upward crossing can start a new trial. With `TriggerTypeDropDown=Lick`, the next trial starts as soon as the ITI has elapsed; licks are then counted during the response window.
 
 ## Lever
 
