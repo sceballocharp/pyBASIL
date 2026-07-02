@@ -72,6 +72,8 @@ class BraincodecTkPanel(ttk.Frame):
         self.trials_file_var = tk.StringVar()
         self.patterns_file_var = tk.StringVar()
         self.mode_var = tk.StringVar(value=MODE_SIMPLE)
+        self.wait_for_trigger_var = tk.BooleanVar(value=True)
+        self.ext_cables_used_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Idle")
         self.info_var = tk.StringVar(value="Waiting")
         self.progress_var = tk.IntVar(value=0)
@@ -79,6 +81,9 @@ class BraincodecTkPanel(ttk.Frame):
         self.indicator_color = "gray"
         self.go_pattern_canvas = None
         self.nogo_pattern_canvas = None
+        self._simulation_after_id = None
+        self._simulation_trials = []
+        self._simulation_index = 0
 
         self._build_widgets()
 
@@ -88,7 +93,7 @@ class BraincodecTkPanel(ttk.Frame):
 
         controls = ttk.LabelFrame(self, text="Braincodec Control")
         controls.grid(row=0, column=0, sticky="ew")
-        controls.columnconfigure(5, weight=1)
+        controls.columnconfigure(6, weight=1)
 
         self.start_button = ttk.Button(controls, text="Start", command=self._handle_start)
         self.start_button.grid(row=0, column=0, padx=4, pady=6, sticky="ew")
@@ -96,17 +101,21 @@ class BraincodecTkPanel(ttk.Frame):
         self.stop_button = ttk.Button(controls, text="Stop", command=self._handle_stop)
         self.stop_button.grid(row=0, column=1, padx=4, pady=6, sticky="ew")
 
-        ttk.Button(controls, text="Clear Log", command=self.clear_log).grid(
+        ttk.Button(controls, text="Simulate", command=self.simulate_session).grid(
             row=0, column=2, padx=4, pady=6, sticky="ew"
         )
 
-        ttk.Label(controls, text="Status").grid(row=0, column=3, padx=(16, 4), pady=6)
+        ttk.Button(controls, text="Clear Log", command=self.clear_log).grid(
+            row=0, column=3, padx=4, pady=6, sticky="ew"
+        )
+
+        ttk.Label(controls, text="Status").grid(row=0, column=4, padx=(16, 4), pady=6)
         ttk.Label(controls, textvariable=self.status_var, width=24).grid(
-            row=0, column=4, padx=4, pady=6, sticky="w"
+            row=0, column=5, padx=4, pady=6, sticky="w"
         )
 
         self.indicator = tk.Canvas(controls, width=38, height=38, highlightthickness=0)
-        self.indicator.grid(row=0, column=5, padx=8, pady=6, sticky="w")
+        self.indicator.grid(row=0, column=6, padx=8, pady=6, sticky="w")
         self._indicator_item = self.indicator.create_oval(
             5, 5, 33, 33, fill=self.indicator_color, outline="black", width=2
         )
@@ -134,6 +143,16 @@ class BraincodecTkPanel(ttk.Frame):
         ttk.Button(mode, text="Validate Config", command=self.validate_config).grid(
             row=0, column=3, padx=6, pady=6, sticky="w"
         )
+        ttk.Checkbutton(
+            mode,
+            text="Wait for trigger",
+            variable=self.wait_for_trigger_var,
+        ).grid(row=1, column=0, padx=6, pady=(0, 6), sticky="w")
+        ttk.Checkbutton(
+            mode,
+            text="Extension cables used",
+            variable=self.ext_cables_used_var,
+        ).grid(row=1, column=1, padx=6, pady=(0, 6), sticky="w")
 
         files = ttk.LabelFrame(self, text="Files")
         files.grid(row=2, column=0, sticky="ew", pady=(8, 0))
@@ -274,6 +293,8 @@ class BraincodecTkPanel(ttk.Frame):
             "config_file": self.config_file_var.get(),
             "trials_file": self.trials_file_var.get(),
             "patterns_file": self.patterns_file_var.get(),
+            "wait_for_trigger": self.wait_for_trigger_var.get(),
+            "ext_cables_used": self.ext_cables_used_var.get(),
         }
 
     def detect_mode_from_config(self) -> Optional[str]:
@@ -364,6 +385,110 @@ class BraincodecTkPanel(ttk.Frame):
         if self.go_pattern_canvas is None or self.nogo_pattern_canvas is None:
             return
         self._draw_empty_pattern_preview(message)
+
+    def simulate_session(self) -> None:
+        if not self.validate_config():
+            return
+
+        trials = self._read_trials()
+        if not trials:
+            return
+
+        self._stop_simulation()
+        self._simulation_trials = trials
+        self._simulation_index = 0
+        self.set_progress(0, maximum=len(trials))
+        self.set_status("Simulating")
+        self.add_log_line(
+            "Simulation started "
+            f"(wait_for_trigger={self.wait_for_trigger_var.get()}, "
+            f"ext_cables_used={self.ext_cables_used_var.get()})"
+        )
+        self._simulation_after_id = self.after(250, self._simulate_next_trial)
+
+    def _simulate_next_trial(self) -> None:
+        if self._simulation_index >= len(self._simulation_trials):
+            self._simulation_after_id = None
+            self.set_status("Simulation finished")
+            self.set_info("Simulation finished")
+            self.set_indicator("gray")
+            self.add_log_line("Simulation finished")
+            return
+
+        trial_number = self._simulation_index + 1
+        trial_code = self._simulation_trials[self._simulation_index]
+        trial_type, color = self._trial_type_for_code(trial_code)
+        self.set_progress(trial_number, maximum=len(self._simulation_trials))
+        self.set_indicator(color)
+        self.set_status("Simulating")
+        self.set_info(f"Trial {trial_number} of {len(self._simulation_trials)} ({trial_type})")
+        self.add_log_line(f"Trial {trial_number}: {trial_type} (code {self._format_trial_code(trial_code)})")
+
+        self._simulation_index += 1
+        self._simulation_after_id = self.after(600, self._simulate_next_trial)
+
+    def _stop_simulation(self) -> None:
+        if self._simulation_after_id is not None:
+            self.after_cancel(self._simulation_after_id)
+            self._simulation_after_id = None
+
+    def _read_trials(self) -> list[float]:
+        trials_path = self.trials_file_var.get().strip()
+        if not trials_path:
+            self.add_log_line("Select a trials file first")
+            self.set_status("No trials")
+            return []
+
+        path = Path(trials_path)
+        if not path.exists():
+            self.add_log_line(f"Trials file not found: {trials_path}")
+            self.set_status("Trials missing")
+            return []
+
+        trials = []
+        try:
+            for line_number, raw_line in enumerate(path.read_text().splitlines(), start=1):
+                cleaned = raw_line.strip()
+                if not cleaned or cleaned.startswith("#"):
+                    continue
+                for value in cleaned.replace(",", " ").split():
+                    trials.append(float(value))
+        except Exception as exc:
+            self.add_log_line(f"Could not read trials file: {exc}")
+            self.set_status("Trials error")
+            return []
+
+        if not trials:
+            self.add_log_line("Trials file contains no numeric trial codes")
+            self.set_status("Trials empty")
+        return trials
+
+    def _trial_type_for_code(self, trial_code: float) -> tuple[str, str]:
+        mode = self.mode_var.get()
+        if mode == MODE_SIMPLE:
+            if trial_code == 1:
+                return "GO", "green"
+            if trial_code == 2:
+                return "NO-GO", "red"
+            if trial_code == 0:
+                return "BLANK", "lightgrey"
+            return "INTERMEDIATE (not implemented)", "orange"
+
+        config = self._read_config() or {}
+        catch_trials = bool(config.get("catch_trials", True))
+        if not catch_trials and 2 <= trial_code <= 15:
+            return "BLANK", "lightgrey"
+        if trial_code == 1:
+            return "GO", "green"
+        if 2 <= trial_code <= 15:
+            return f"CATCH {int(trial_code - 1)}", "orange"
+        return "NO-GO", "red"
+
+    @staticmethod
+    def _format_trial_code(trial_code: float) -> str:
+        if float(trial_code).is_integer():
+            return str(int(trial_code))
+        return str(trial_code)
 
     def _draw_empty_pattern_preview(self, message: str) -> None:
         if self.go_pattern_canvas is None or self.nogo_pattern_canvas is None:
@@ -525,6 +650,7 @@ class BraincodecTkPanel(ttk.Frame):
             self.on_start()
 
     def _handle_stop(self) -> None:
+        self._stop_simulation()
         self.set_status("Stopping")
         self.add_log_line("Stop requested")
         if self.on_stop is not None:
