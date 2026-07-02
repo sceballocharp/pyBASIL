@@ -66,6 +66,7 @@ TaskType=ClassicGoNoGo
 | --- | --- | --- | --- |
 | `Rewardduration_ms` | Reward duration ms | All response modes | Water valve/trigger pulse duration in ms. |
 | `RewardGo` | RewardGo Prob | GO HITs | Saved reward probability key for GO HITs, from `0` to `1`. `RewardGoProb` is accepted as an import alias. |
+| `Pavlov` | Pavlov | GO trials | Probability that a GO trial receives reward independent of lick count or IR crossing. `0` disables Pavlov reward; `1` rewards every GO trial. HIT/MISS scoring still reflects the animal response. |
 | `PunishNoGoFA` | Timeout false alarms | no-go FA | Timeout duration after a no-go false alarm, in seconds. |
 | `HITThreshold_percent` | HIT threshold % | `TriggerTypeDropDown=IRFork` | Percentage of `ResponseWindow_s` that the IR beam signal must remain above threshold to count as HIT/FA. |
 | `Minlickcount` | Min lick count | `TriggerTypeDropDown=Lick` | Number of upward crossings over `Lickthreshold` required to count as HIT/FA. |

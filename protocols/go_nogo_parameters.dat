@@ -25,5 +25,6 @@ ResponseWindow_s=1
 RewardDelay_s=0
 Rewardduration_ms=30
 RewardGoProb=1
+Pavlov=0
 PunishNoGoFA=10
 HITThreshold_s=1

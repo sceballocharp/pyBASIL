@@ -114,6 +114,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
         self.active_reward_decided = False
+        self.active_reward_sent = False
         self.active_trial_base_iti_s = 0.0
         self.active_trial_extra_timeout_s = 0.0
         self.active_lever_sound_id = 1
@@ -328,6 +329,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.hit_threshold_s = tk.StringVar(value="50")
         self.punish_interval = tk.StringVar(value="")
         self.reward_go = tk.StringVar(value="")
+        self.pavlov = tk.StringVar(value="0")
         self.punish_no_go_fa = tk.StringVar(value="")
         self.min_lick_count = tk.StringVar(value="")
         self.lick_threshold = tk.StringVar(value="")
@@ -345,6 +347,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self._entry(trial, 0, "Task type", self.task_type, width=6, row=0)
         self._entry(trial, 2, "Current trial", self.current_trial_var, width=6, row=0, state="readonly")
         self._entry(trial, 4, "RewardGo", self.reward_go, width=6, row=0)
+        self._entry(trial, 6, "Pavlov", self.pavlov, width=6, row=0)
         self._entry(trial, 0, "ITI s", self.iti_s, width=6, row=1)
         self._entry(trial, 2, "ITI min", self.iti_rand_min_s, width=6, row=1)
         self._entry(trial, 4, "ITI max", self.iti_rand_max_s, width=6, row=1)
@@ -705,6 +708,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "PunishInterval": self.punish_interval,
             "RewardGo": self.reward_go,
             "RewardGoProb": self.reward_go,
+            "Pavlov": self.pavlov,
             "PunishNoGoFA": self.punish_no_go_fa,
             "Minlickcount": self.min_lick_count,
             "Lickthreshold": self.lick_threshold,
@@ -857,6 +861,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
         self.active_reward_decided = False
+        self.active_reward_sent = False
         self.active_trial_base_iti_s = 0.0
         self.active_trial_extra_timeout_s = 0.0
         self.active_lever_sound_id = 1
@@ -1200,6 +1205,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "PunishInterval": self.punish_interval.get(),
             "RewardGo": self.reward_go.get(),
             "RewardProb": self.reward_go.get(),
+            "Pavlov": self.pavlov.get(),
             "PunishNoGoFA": self.punish_no_go_fa.get(),
             "Minlickcount": self.min_lick_count.get(),
             "Lickthreshold": self.lick_threshold.get(),
@@ -1260,6 +1266,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "PunishInterval",
             "RewardGo",
             "RewardProb",
+            "Pavlov",
             "PunishNoGoFA",
             "Minlickcount",
             "Lickthreshold",
@@ -1336,6 +1343,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "punish_interval": params["PunishInterval"],
             "reward_go": params["RewardGo"],
             "reward_prob": params["RewardProb"],
+            "pavlov": params["Pavlov"],
             "punish_no_go_fa": params["PunishNoGoFA"],
             "min_lick_count": params["Minlickcount"],
             "lick_threshold": params["Lickthreshold"],
@@ -1383,6 +1391,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
         self.active_reward_decided = False
+        self.active_reward_sent = False
         self.active_trial_base_iti_s = iti_s
         self.active_trial_extra_timeout_s = 0.0
         self.trigger_reset_seen_for_new_trial = False
@@ -1404,6 +1413,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
         self.active_reward_decided = False
+        self.active_reward_sent = False
         self.active_trial_base_iti_s = iti_s
         self.active_trial_extra_timeout_s = 0.0
         self.active_dmts_sample_sound_id = max(1, int(sample_sound_id or self.parse_int(self.sample_sound_id, 1)))
@@ -1702,6 +1712,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
         self.active_reward_decided = False
+        self.active_reward_sent = False
         self.active_trial_base_iti_s = iti_s
         self.active_trial_extra_timeout_s = 0.0
         self.active_lever_sound_id = self.parse_int(self.sound_id, 1)
@@ -1943,6 +1954,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             row["ResultType"] = "HIT" if row["HIT"] else "MISS"
             if row["HIT"]:
                 self.maybe_send_go_reward(row, total_s, start_s=trial_end_s)
+            if is_go:
+                self.maybe_send_pavlov_reward(row, start_s=trial_end_s)
         elif is_nogo:
             row["HIT"] = 0
             row["MISS"] = 0
@@ -1976,6 +1989,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             row["ResultType"] = "HIT" if row["HIT"] else "MISS"
             if row["HIT"]:
                 self.maybe_send_go_reward(row, float(lick_count), start_s=trial_end_s)
+            if is_go:
+                self.maybe_send_pavlov_reward(row, start_s=trial_end_s)
         elif is_nogo:
             row["HIT"] = 0
             row["MISS"] = 0
@@ -2038,6 +2053,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         measure = f"{int(total_s)} licks" if self.is_lick_trigger() else f"{total_s:.3f} s total IR crossing"
         if draw <= reward_probability and self.trigger_output_on_crossing.get():
             self.send_output_pulse(from_worker=True, start_s=start_s)
+            self.active_reward_sent = True
             self.plot_queue.put((
                 "log",
                 f"Trial {row['trial']} reached HIT threshold with {measure}. "
@@ -2048,6 +2064,29 @@ class BehaviorAcquisitionApp(tk.Tk):
                 "log",
                 f"Trial {row['trial']} reached HIT threshold with {measure}. "
                 f"Reward skipped, p={reward_probability:.3f}, draw={draw:.3f}.",
+            ))
+
+    def get_pavlov_probability(self):
+        return min(1.0, max(0.0, self.parse_float(self.pavlov, 0.0)))
+
+    def maybe_send_pavlov_reward(self, row, start_s=None):
+        if self.active_reward_sent:
+            return
+        pavlov_probability = self.get_pavlov_probability()
+        if pavlov_probability <= 0:
+            return
+        draw = random.random()
+        if draw <= pavlov_probability and self.trigger_output_on_crossing.get():
+            self.send_output_pulse(from_worker=True, start_s=start_s)
+            self.active_reward_sent = True
+            self.plot_queue.put((
+                "log",
+                f"Trial {row['trial']} GO Pavlov reward sent, p={pavlov_probability:.3f}, draw={draw:.3f}.",
+            ))
+        else:
+            self.plot_queue.put((
+                "log",
+                f"Trial {row['trial']} GO Pavlov reward skipped, p={pavlov_probability:.3f}, draw={draw:.3f}.",
             ))
 
     def get_active_trial_row(self):
@@ -2066,6 +2105,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
         self.active_reward_decided = False
+        self.active_reward_sent = False
         self.active_trial_base_iti_s = 0.0
         self.active_trial_extra_timeout_s = 0.0
         self.active_lever_sound_id = 1
@@ -2628,6 +2668,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("PunishInterval", params["PunishInterval"]),
             ("RewardGo", params["RewardGo"]),
             ("RewardProb", params["RewardProb"]),
+            ("Pavlov", params["Pavlov"]),
             ("PunishNoGoFA", params["PunishNoGoFA"]),
             ("Minlickcount", params["Minlickcount"]),
             ("Lickthreshold", params["Lickthreshold"]),

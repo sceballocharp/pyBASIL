@@ -46,6 +46,7 @@ PARAMETERS = [
     Parameter("RewardDelay_s", "Reward delay s", "0", "GoNoGoTiming", "float"),
     Parameter("Rewardduration_ms", "Reward duration ms", "40", "GoNoGoOutcome", "float"),
     Parameter("RewardGoProb", "RewardGo Prob", "1", "GoNoGoOutcome", "float"),
+    Parameter("Pavlov", "Pavlov", "0", "GoNoGoOutcome", "float"),
     Parameter("PunishNoGoFA", "Timeout false alarms", "1", "GoNoGoOutcome", "float"),
     Parameter("HITThreshold_percent", "HIT threshold %", "50", "GoNoGoOutcome", "float"),
     Parameter("Minlickcount", "Min lick count", "1", "GoNoGoOutcome", "int"),
@@ -460,6 +461,8 @@ class ProtocolGenerator(tk.Tk):
             errors.append("Min lick count must be at least 1.")
         if not 0 <= self.parse_float("RewardGoProb", -1) <= 1:
             errors.append("RewardGo Prob must be between 0 and 1.")
+        if not 0 <= self.parse_float("Pavlov", -1) <= 1:
+            errors.append("Pavlov must be between 0 and 1.")
         if not 0 <= self.parse_float("PunishNoGoFA", -1) <= 25:
             errors.append("Timeout false alarms must be between 0 and 25 seconds.")
         return errors
