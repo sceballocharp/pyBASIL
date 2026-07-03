@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from collections import deque
 from datetime import datetime
+import json
 from pathlib import Path
+import threading
 from tkinter import filedialog, ttk
 from typing import Callable, Optional
 import tkinter as tk
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 try:
     import yaml
@@ -71,6 +75,7 @@ class BraincodecTkPanel(ttk.Frame):
         self.config_file_var = tk.StringVar()
         self.trials_file_var = tk.StringVar()
         self.patterns_file_var = tk.StringVar()
+        self.remote_url_var = tk.StringVar(value="http://192.168.2.99:8000")
         self.mode_var = tk.StringVar(value=MODE_SIMPLE)
         self.wait_for_trigger_var = tk.BooleanVar(value=True)
         self.ext_cables_used_var = tk.BooleanVar(value=True)
@@ -118,6 +123,20 @@ class BraincodecTkPanel(ttk.Frame):
         self.indicator.grid(row=0, column=6, padx=8, pady=6, sticky="w")
         self._indicator_item = self.indicator.create_oval(
             5, 5, 33, 33, fill=self.indicator_color, outline="black", width=2
+        )
+
+        ttk.Label(controls, text="PYNQ runner").grid(row=1, column=0, padx=4, pady=(0, 6), sticky="w")
+        ttk.Entry(controls, textvariable=self.remote_url_var, width=26).grid(
+            row=1, column=1, columnspan=2, padx=4, pady=(0, 6), sticky="ew"
+        )
+        ttk.Button(controls, text="Remote Start", command=self.start_remote_experiment).grid(
+            row=1, column=3, padx=4, pady=(0, 6), sticky="ew"
+        )
+        ttk.Button(controls, text="Remote Stop", command=self.stop_remote_experiment).grid(
+            row=1, column=4, padx=4, pady=(0, 6), sticky="ew"
+        )
+        ttk.Button(controls, text="Remote Status", command=self.check_remote_status).grid(
+            row=1, column=5, padx=4, pady=(0, 6), sticky="ew"
         )
 
         mode = ttk.LabelFrame(self, text="Experiment Type")
@@ -296,6 +315,113 @@ class BraincodecTkPanel(ttk.Frame):
             "wait_for_trigger": self.wait_for_trigger_var.get(),
             "ext_cables_used": self.ext_cables_used_var.get(),
         }
+
+    def start_remote_experiment(self) -> None:
+        if not self.validate_config():
+            return
+        payload = self._build_remote_payload()
+        if payload is None:
+            return
+        self.set_status("Remote starting")
+        self.add_log_line("Sending remote start command")
+        self._run_remote_request("POST", "/start", payload)
+
+    def stop_remote_experiment(self) -> None:
+        self.set_status("Remote stopping")
+        self.add_log_line("Sending remote stop command")
+        self._run_remote_request("POST", "/stop", {})
+
+    def check_remote_status(self) -> None:
+        self.add_log_line("Checking remote status")
+        self._run_remote_request("GET", "/status", None)
+
+    def _build_remote_payload(self) -> Optional[dict]:
+        config_file = self._remote_file_value(self.config_file_var.get())
+        trials_file = self._remote_file_value(self.trials_file_var.get())
+        if not config_file:
+            self.add_log_line("Select a config file before remote start")
+            self.set_status("No config")
+            return None
+        if not trials_file:
+            self.add_log_line("Select a trials file before remote start")
+            self.set_status("No trials")
+            return None
+
+        payload = {
+            "mode": self.mode_var.get(),
+            "config_file": config_file,
+            "trials_file": trials_file,
+            "wait_for_trigger": self.wait_for_trigger_var.get(),
+            "ext_cables_used": self.ext_cables_used_var.get(),
+        }
+        if self.mode_var.get() == MODE_BRAINCODEC and self.patterns_file_var.get().strip():
+            payload["patterns_file"] = self._remote_file_value(self.patterns_file_var.get())
+        return payload
+
+    @staticmethod
+    def _remote_file_value(value: str) -> str:
+        value = value.strip()
+        if not value:
+            return ""
+        path = Path(value)
+        if path.is_absolute() or path.exists():
+            return path.name
+        return value.replace("\\", "/")
+
+    def _run_remote_request(self, method: str, endpoint: str, payload: Optional[dict]) -> None:
+        base_url = self.remote_url_var.get().strip().rstrip("/")
+        if not base_url:
+            self.add_log_line("Enter the PYNQ runner URL first")
+            self.set_status("No runner URL")
+            return
+
+        thread = threading.Thread(
+            target=self._remote_request_worker,
+            args=(method, f"{base_url}{endpoint}", payload),
+            daemon=True,
+        )
+        thread.start()
+
+    def _remote_request_worker(self, method: str, url: str, payload: Optional[dict]) -> None:
+        try:
+            data = None
+            headers = {}
+            if payload is not None:
+                data = json.dumps(payload).encode("utf-8")
+                headers["Content-Type"] = "application/json"
+            request = urllib_request.Request(url, data=data, headers=headers, method=method)
+            with urllib_request.urlopen(request, timeout=5) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            self.after(0, lambda body=body: self._handle_remote_response(body))
+        except urllib_error.HTTPError as exc:
+            try:
+                body = json.loads(exc.read().decode("utf-8"))
+                message = body.get("error", str(exc))
+            except Exception:
+                message = str(exc)
+            self.after(0, lambda message=message: self._handle_remote_error(message))
+        except Exception as exc:
+            message = str(exc)
+            self.after(0, lambda message=message: self._handle_remote_error(message))
+
+    def _handle_remote_response(self, body: dict) -> None:
+        status = body.get("status", {})
+        state = status.get("state", "unknown")
+        message = status.get("last_message", "")
+        current_trial = status.get("current_trial", 0)
+        total_trials = status.get("total_trials", 0)
+
+        self.set_status(f"Remote {state}")
+        if total_trials:
+            self.set_progress(int(current_trial), maximum=int(total_trials))
+        if message:
+            self.set_info(message)
+        self.add_log_line(f"Remote state: {state}" + (f" | {message}" if message else ""))
+
+    def _handle_remote_error(self, message: str) -> None:
+        self.set_status("Remote error")
+        self.set_indicator("red")
+        self.add_log_line(f"Remote error: {message}")
 
     def detect_mode_from_config(self) -> Optional[str]:
         config = self._read_config()
