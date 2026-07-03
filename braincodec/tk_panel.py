@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from collections import deque
 from datetime import datetime
 import json
@@ -94,9 +95,15 @@ class BraincodecTkPanel(ttk.Frame):
 
     def _build_widgets(self) -> None:
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(4, weight=1)
+        self.columnconfigure(1, weight=0)
+        self.rowconfigure(0, weight=1)
 
-        controls = ttk.LabelFrame(self, text="Braincodec Control")
+        left_pane = ttk.Frame(self)
+        left_pane.grid(row=0, column=0, sticky="nsew")
+        left_pane.columnconfigure(0, weight=1)
+        left_pane.rowconfigure(3, weight=1)
+
+        controls = ttk.LabelFrame(left_pane, text="Braincodec Control")
         controls.grid(row=0, column=0, sticky="ew")
         controls.columnconfigure(6, weight=1)
 
@@ -138,8 +145,11 @@ class BraincodecTkPanel(ttk.Frame):
         ttk.Button(controls, text="Remote Status", command=self.check_remote_status).grid(
             row=1, column=5, padx=4, pady=(0, 6), sticky="ew"
         )
+        ttk.Button(controls, text="Upload Files", command=self.upload_remote_files).grid(
+            row=1, column=6, padx=4, pady=(0, 6), sticky="ew"
+        )
 
-        mode = ttk.LabelFrame(self, text="Experiment Type")
+        mode = ttk.LabelFrame(left_pane, text="Experiment Type")
         mode.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         mode.columnconfigure(3, weight=1)
         ttk.Radiobutton(
@@ -173,7 +183,7 @@ class BraincodecTkPanel(ttk.Frame):
             variable=self.ext_cables_used_var,
         ).grid(row=1, column=1, padx=6, pady=(0, 6), sticky="w")
 
-        files = ttk.LabelFrame(self, text="Files")
+        files = ttk.LabelFrame(left_pane, text="Files")
         files.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         files.columnconfigure(1, weight=1)
 
@@ -184,12 +194,12 @@ class BraincodecTkPanel(ttk.Frame):
         )
 
         preview = ttk.LabelFrame(self, text="Pattern Preview")
-        preview.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        preview.grid(row=0, column=1, sticky="ns", padx=(8, 0))
         preview.columnconfigure(0, weight=1)
         self._build_pattern_preview(preview)
 
-        runtime = ttk.LabelFrame(self, text="Run")
-        runtime.grid(row=4, column=0, sticky="nsew", pady=(8, 0))
+        runtime = ttk.LabelFrame(left_pane, text="Run")
+        runtime.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
         runtime.columnconfigure(0, weight=1)
         runtime.rowconfigure(3, weight=1)
 
@@ -216,19 +226,18 @@ class BraincodecTkPanel(ttk.Frame):
 
     def _build_pattern_preview(self, parent) -> None:
         parent.columnconfigure(0, weight=1)
-        parent.columnconfigure(1, weight=1)
 
         go_frame = ttk.Frame(parent)
-        go_frame.grid(row=0, column=0, sticky="nsew", padx=(6, 3), pady=6)
+        go_frame.grid(row=0, column=0, sticky="n", padx=6, pady=(6, 3))
         nogo_frame = ttk.Frame(parent)
-        nogo_frame.grid(row=0, column=1, sticky="nsew", padx=(3, 6), pady=6)
+        nogo_frame.grid(row=1, column=0, sticky="n", padx=6, pady=(3, 6))
 
         ttk.Label(go_frame, text="GO").pack(anchor="center")
-        self.go_pattern_canvas = tk.Canvas(go_frame, width=310, height=310, background="white")
+        self.go_pattern_canvas = tk.Canvas(go_frame, width=280, height=280, background="white")
         self.go_pattern_canvas.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(nogo_frame, text="NO-GO").pack(anchor="center")
-        self.nogo_pattern_canvas = tk.Canvas(nogo_frame, width=310, height=310, background="white")
+        self.nogo_pattern_canvas = tk.Canvas(nogo_frame, width=280, height=280, background="white")
         self.nogo_pattern_canvas.pack(fill=tk.BOTH, expand=True)
 
         self._draw_empty_pattern_preview("Select a simple-pattern config")
@@ -335,6 +344,50 @@ class BraincodecTkPanel(ttk.Frame):
         self.add_log_line("Checking remote status")
         self._run_remote_request("GET", "/status", None)
 
+    def upload_remote_files(self) -> None:
+        payload = self._build_upload_payload()
+        if payload is None:
+            return
+        self.set_status("Uploading")
+        self.add_log_line(f"Uploading {len(payload['files'])} file(s) to PYNQ")
+        self._run_remote_request("POST", "/upload", payload)
+
+    def _build_upload_payload(self) -> Optional[dict]:
+        files = []
+        config_file = self.config_file_var.get().strip()
+        trials_file = self.trials_file_var.get().strip()
+
+        if not config_file:
+            self.add_log_line("Select a config file before upload")
+            self.set_status("No config")
+            return None
+        if not trials_file:
+            self.add_log_line("Select a trials file before upload")
+            self.set_status("No trials")
+            return None
+
+        files.append(self._upload_file_entry("config", config_file))
+        files.append(self._upload_file_entry("trials", trials_file))
+
+        if self.mode_var.get() == MODE_BRAINCODEC and self.patterns_file_var.get().strip():
+            files.append(self._upload_file_entry("patterns", self.patterns_file_var.get()))
+
+        if any(file_entry is None for file_entry in files):
+            return None
+        return {"files": files}
+
+    def _upload_file_entry(self, file_type: str, path_text: str) -> Optional[dict]:
+        path = Path(path_text.strip())
+        if not path.exists():
+            self.add_log_line(f"Cannot upload missing file: {path_text}")
+            self.set_status("Upload file missing")
+            return None
+        return {
+            "type": file_type,
+            "name": path.name,
+            "content_b64": base64.b64encode(path.read_bytes()).decode("ascii"),
+        }
+
     def _build_remote_payload(self) -> Optional[dict]:
         config_file = self._remote_file_value(self.config_file_var.get())
         trials_file = self._remote_file_value(self.trials_file_var.get())
@@ -405,6 +458,14 @@ class BraincodecTkPanel(ttk.Frame):
             self.after(0, lambda message=message: self._handle_remote_error(message))
 
     def _handle_remote_response(self, body: dict) -> None:
+        saved = body.get("saved")
+        if saved:
+            saved_names = ", ".join(item.get("path", item.get("name", "")) for item in saved)
+            self.set_status("Upload complete")
+            self.set_info(f"Uploaded: {saved_names}")
+            self.add_log_line(f"Upload complete: {saved_names}")
+            return
+
         status = body.get("status", {})
         state = status.get("state", "unknown")
         message = status.get("last_message", "")
@@ -621,12 +682,12 @@ class BraincodecTkPanel(ttk.Frame):
             return
         for canvas in (self.go_pattern_canvas, self.nogo_pattern_canvas):
             canvas.delete("all")
-            canvas.create_text(155, 155, text=message, width=260, fill="#555555")
+            canvas.create_text(140, 140, text=message, width=230, fill="#555555")
 
     def _draw_pattern_grid(self, canvas: tk.Canvas, pattern: list[str], title: str, active_color: str) -> None:
         active_labels = set(pattern)
         canvas.delete("all")
-        canvas.create_text(155, 15, text=title, font=("TkDefaultFont", 9, "bold"))
+        canvas.create_text(140, 15, text=title, font=("TkDefaultFont", 9, "bold"))
 
         left = 35
         top = 35

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import os
 import threading
@@ -91,7 +92,24 @@ class BraincodecRunnerState:
         self.update(state="stopping" if running else "idle", last_message="Stop requested")
         return 202, {"ok": True, "status": self.snapshot()}
 
+    def upload(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        files = payload.get("files", [])
+        if not isinstance(files, list) or not files:
+            return 400, {"ok": False, "error": "Upload payload must contain a non-empty files list"}
+
+        saved = []
+        for file_info in files:
+            try:
+                saved.append(_save_uploaded_file(file_info))
+            except Exception as exc:
+                return 400, {"ok": False, "error": str(exc), "saved": saved}
+
+        self.update(last_message=f"Uploaded {len(saved)} file(s)")
+        return 200, {"ok": True, "saved": saved, "status": self.snapshot()}
+
     def _run_experiment(self, payload: dict[str, Any]) -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
             self.update(state="loading", last_message="Loading hardware and driver")
             total_trials = _count_trials_if_available(payload.get("trials_file", ""))
@@ -105,7 +123,7 @@ class BraincodecRunnerState:
 
             self._attach_status_hooks(exp)
             self.update(state="running", last_message="Running experiment")
-            asyncio.run(exp.run())
+            loop.run_until_complete(exp.run())
 
             final_state = "stopped" if self.snapshot()["state"] == "stopping" else "finished"
             self.update(
@@ -124,6 +142,8 @@ class BraincodecRunnerState:
         finally:
             with self.lock:
                 self.experiment = None
+            asyncio.set_event_loop(None)
+            loop.close()
 
     def _get_overlay(self):
         if self.overlay is None:
@@ -208,6 +228,11 @@ class BraincodecRequestHandler(BaseHTTPRequestHandler):
             status, body = self.runner_state.stop()
             self._send_json(status, body)
             return
+        if path == "/upload":
+            payload = self._read_json()
+            status, body = self.runner_state.upload(payload)
+            self._send_json(status, body)
+            return
         self._send_json(404, {"ok": False, "error": "Unknown endpoint"})
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -259,6 +284,46 @@ def _count_trials_if_available(trials_file: str) -> int:
                 continue
             count += len(line.replace(",", " ").split())
     return count
+
+
+def _save_uploaded_file(file_info: dict[str, Any]) -> dict[str, str]:
+    if not isinstance(file_info, dict):
+        raise ValueError("Each uploaded file must be an object")
+
+    file_type = file_info.get("type")
+    name = _safe_filename(str(file_info.get("name", "")))
+    content_b64 = file_info.get("content_b64")
+    if not name:
+        raise ValueError("Uploaded file is missing a name")
+    if not isinstance(content_b64, str):
+        raise ValueError(f"Uploaded file {name} is missing content_b64")
+
+    if file_type == "config":
+        folder = "Configurations"
+    elif file_type == "trials":
+        folder = "."
+    elif file_type == "patterns":
+        folder = "Patterns"
+    else:
+        raise ValueError(f"Unknown upload file type: {file_type}")
+
+    os.makedirs(folder, exist_ok=True)
+    destination = os.path.abspath(os.path.join(folder, name))
+    folder_abs = os.path.abspath(folder)
+    if not destination.startswith(folder_abs):
+        raise ValueError(f"Unsafe upload destination: {name}")
+
+    with open(destination, "wb") as handle:
+        handle.write(base64.b64decode(content_b64.encode("ascii")))
+
+    return {"type": str(file_type), "name": name, "path": os.path.relpath(destination)}
+
+
+def _safe_filename(name: str) -> str:
+    basename = os.path.basename(name.replace("\\", "/"))
+    if basename in ("", ".", ".."):
+        raise ValueError(f"Unsafe file name: {name}")
+    return basename
 
 
 def main() -> None:
