@@ -112,11 +112,17 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_trial_index = None
         self.active_trial_start_s = None
         self.active_trial_end_s = None
+        self.active_response_end_s = None
         self.active_high_start_s = None
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
         self.active_reward_decided = False
         self.active_reward_sent = False
+        self.active_pending_reward_due_s = None
+        self.active_pending_reward_row = None
+        self.active_pending_reward_measure = ""
+        self.active_pending_reward_probability = 0.0
+        self.active_pending_reward_draw = 0.0
         self.active_trial_base_iti_s = 0.0
         self.active_trial_extra_timeout_s = 0.0
         self.active_lever_sound_id = 1
@@ -915,6 +921,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lick_count = 0
         self.active_reward_decided = False
         self.active_reward_sent = False
+        self.active_pending_reward_due_s = None
+        self.active_pending_reward_row = None
+        self.active_pending_reward_measure = ""
+        self.active_pending_reward_probability = 0.0
+        self.active_pending_reward_draw = 0.0
         self.active_trial_base_iti_s = 0.0
         self.active_trial_extra_timeout_s = 0.0
         self.active_lever_sound_id = 1
@@ -1108,6 +1119,8 @@ class BehaviorAcquisitionApp(tk.Tk):
                 self.check_lever_trigger_sample(sample_time_s, value, threshold)
                 continue
 
+            self.process_pending_go_reward(sample_time_s)
+
             if self.active_trial_index is not None and self.active_trial_end_s is not None and sample_time_s >= self.active_trial_end_s:
                 if self.is_dmts_task():
                     self.finish_active_dmts_timeline(self.active_trial_end_s)
@@ -1123,12 +1136,13 @@ class BehaviorAcquisitionApp(tk.Tk):
                 if self.is_dmts_task():
                     self.update_active_dmts_trial(sample_time_s, is_high, crossed_up, crossed_down)
                 elif self.is_lick_trigger():
-                    if crossed_up:
+                    if crossed_up and self.is_within_active_response_window(sample_time_s):
                         self.add_active_lick()
-                elif crossed_up:
-                    self.active_high_start_s = sample_time_s
-                elif crossed_down:
-                    self.add_active_high_interval(sample_time_s)
+                elif self.is_within_active_response_window(sample_time_s):
+                    if crossed_up:
+                        self.active_high_start_s = sample_time_s
+                    elif crossed_down:
+                        self.add_active_high_interval(sample_time_s)
                 if not self.is_dmts_task():
                     self.evaluate_active_trial(sample_time_s)
                 continue
@@ -1454,7 +1468,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         response_window_s = max(0.0, self.parse_float(self.response_window_s, 2))
         self.active_trial_index = self.trial_index
         self.active_trial_start_s = trigger_time_s
-        self.active_trial_end_s = trigger_time_s + response_window_s
+        self.active_response_end_s = trigger_time_s + response_window_s
+        self.active_trial_end_s = self.active_response_end_s
         self.active_high_start_s = trigger_time_s
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
@@ -1473,6 +1488,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         reward_duration_s = max(0.0, self.parse_float(self.pulse_ms, 50) / 1000.0)
         self.active_trial_index = self.trial_index
         self.active_trial_start_s = trigger_time_s
+        self.active_response_end_s = None
         self.active_dmts_response_start_s = trigger_time_s + sound_duration_s + delay_s + sound_duration_s
         self.active_dmts_response_end_s = self.active_dmts_response_start_s + response_window_s
         self.active_dmts_reward_start_s = self.active_dmts_response_end_s + reward_delay_s
@@ -1940,6 +1956,14 @@ class BehaviorAcquisitionApp(tk.Tk):
             total_s += max(0.0, sample_time_s - self.active_high_start_s)
         return total_s
 
+    def get_active_response_sample_time(self, sample_time_s):
+        if self.active_response_end_s is None:
+            return sample_time_s
+        return min(sample_time_s, self.active_response_end_s)
+
+    def is_within_active_response_window(self, sample_time_s):
+        return self.active_response_end_s is None or sample_time_s <= self.active_response_end_s
+
     def get_hit_threshold_s(self):
         response_window_s = max(0.0, self.parse_float(self.response_window_s, 2))
         raw_value = max(0.0, self.parse_float(self.hit_threshold_s, 50))
@@ -1952,10 +1976,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         if row is None:
             return
         if self.is_lick_trigger():
-            self.evaluate_active_lick_trial(row)
+            self.evaluate_active_lick_trial(row, sample_time_s)
             return
         hit_threshold_s = self.get_hit_threshold_s()
-        total_s = self.get_active_crossing_total(sample_time_s)
+        scoring_time_s = self.get_active_response_sample_time(sample_time_s)
+        total_s = self.get_active_crossing_total(scoring_time_s)
         row["crossing_duration_s"] = f"{total_s:.6f}"
         is_dmts = row["TrialType"].endswith("DMTS")
         is_go = row["TrialType"].endswith("GO")
@@ -1976,7 +2001,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             row["ResultType"] = "FA"
             self.write_trial_log()
 
-    def evaluate_active_lick_trial(self, row):
+    def evaluate_active_lick_trial(self, row, sample_time_s):
         row["lick_count"] = self.active_lick_count
         min_lick_count = self.get_min_lick_count()
         is_dmts = row["TrialType"].endswith("DMTS")
@@ -1988,7 +2013,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             row["CR"] = 0
             row["FA"] = 0
             row["ResultType"] = "HIT"
-            self.maybe_send_go_reward(row, float(self.active_lick_count), start_s=self.active_trial_start_s)
+            self.maybe_send_go_reward(row, float(self.active_lick_count), start_s=sample_time_s)
             self.write_trial_log()
         elif is_nogo and self.active_lick_count >= min_lick_count and not row["FA"]:
             row["HIT"] = 0
@@ -2006,8 +2031,9 @@ class BehaviorAcquisitionApp(tk.Tk):
         if self.is_lick_trigger():
             self.finish_active_lick_trial(row, trial_end_s)
             return
+        scoring_end_s = self.get_active_response_sample_time(trial_end_s)
         if self.active_high_start_s is not None:
-            self.add_active_high_interval(trial_end_s)
+            self.add_active_high_interval(scoring_end_s)
         hit_threshold_s = self.get_hit_threshold_s()
         total_s = self.active_crossing_total_s
         row["crossing_duration_s"] = f"{total_s:.6f}"
@@ -2120,13 +2146,18 @@ class BehaviorAcquisitionApp(tk.Tk):
         draw = random.random()
         measure = f"{int(total_s)} licks" if self.is_lick_trigger() else f"{total_s:.3f} s total IR crossing"
         if draw <= reward_probability and self.trigger_output_on_crossing.get():
-            self.send_output_pulse(from_worker=True, start_s=start_s)
-            self.active_reward_sent = True
-            self.plot_queue.put((
-                "log",
-                f"Trial {row['trial']} reached HIT threshold with {measure}. "
-                f"Reward sent, p={reward_probability:.3f}, draw={draw:.3f}.",
-            ))
+            delay_s = self.get_classic_go_reward_delay_s(row)
+            reward_start_s = (start_s or 0.0) + delay_s
+            if delay_s > 0:
+                self.schedule_pending_go_reward(row, reward_start_s, measure, reward_probability, draw)
+            else:
+                self.send_output_pulse(from_worker=True, start_s=start_s)
+                self.active_reward_sent = True
+                self.plot_queue.put((
+                    "log",
+                    f"Trial {row['trial']} reached HIT threshold with {measure}. "
+                    f"Reward sent, p={reward_probability:.3f}, draw={draw:.3f}.",
+                ))
         else:
             self.plot_queue.put((
                 "log",
@@ -2134,11 +2165,51 @@ class BehaviorAcquisitionApp(tk.Tk):
                 f"Reward skipped, p={reward_probability:.3f}, draw={draw:.3f}.",
             ))
 
+    def get_classic_go_reward_delay_s(self, row):
+        if row is None or row.get("TrialType") != "GO":
+            return 0.0
+        return max(0.0, self.parse_float(self.reward_delay_s, 0.0))
+
+    def schedule_pending_go_reward(self, row, reward_start_s, measure, reward_probability, draw):
+        self.active_pending_reward_due_s = reward_start_s
+        self.active_pending_reward_row = row
+        self.active_pending_reward_measure = measure
+        self.active_pending_reward_probability = reward_probability
+        self.active_pending_reward_draw = draw
+        reward_duration_s = max(0.0, self.parse_float(self.pulse_ms, 50) / 1000.0)
+        if self.active_trial_end_s is not None:
+            self.active_trial_end_s = max(self.active_trial_end_s, reward_start_s + reward_duration_s)
+        self.plot_queue.put((
+            "log",
+            f"Trial {row['trial']} reached HIT threshold with {measure}. "
+            f"Reward scheduled after {self.get_classic_go_reward_delay_s(row):.3f} s, "
+            f"p={reward_probability:.3f}, draw={draw:.3f}.",
+        ))
+
+    def process_pending_go_reward(self, sample_time_s):
+        if self.active_pending_reward_due_s is None:
+            return
+        if sample_time_s < self.active_pending_reward_due_s:
+            return
+        row = self.active_pending_reward_row
+        self.send_output_pulse(from_worker=True, start_s=self.active_pending_reward_due_s)
+        self.active_reward_sent = True
+        self.plot_queue.put((
+            "log",
+            f"Trial {row['trial'] if row else '?'} delayed reward sent with {self.active_pending_reward_measure}. "
+            f"p={self.active_pending_reward_probability:.3f}, draw={self.active_pending_reward_draw:.3f}.",
+        ))
+        self.active_pending_reward_due_s = None
+        self.active_pending_reward_row = None
+        self.active_pending_reward_measure = ""
+        self.active_pending_reward_probability = 0.0
+        self.active_pending_reward_draw = 0.0
+
     def get_pavlov_probability(self):
         return min(1.0, max(0.0, self.parse_float(self.pavlov, 0.0)))
 
     def maybe_send_pavlov_reward(self, row, start_s=None):
-        if self.active_reward_sent:
+        if self.active_reward_sent or self.active_pending_reward_due_s is not None:
             return
         pavlov_probability = self.get_pavlov_probability()
         if pavlov_probability <= 0:
@@ -2169,6 +2240,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_trial_index = None
         self.active_trial_start_s = None
         self.active_trial_end_s = None
+        self.active_response_end_s = None
         self.active_high_start_s = None
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0

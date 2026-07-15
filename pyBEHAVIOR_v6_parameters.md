@@ -58,9 +58,9 @@ TaskType=ClassicGoNoGo
 | `ITIrandMax_s` | rand max | Maximum random ITI addition. |
 | `Sounddelay_s` | Sound delay s | Delay from trial start to sound onset. |
 | `SoundDuration_s` | Sound duration s | Duration of the sound stimulus. |
-| `TrialDuration_s` | Trial duration s | Computed as sound delay + sound duration + reward delay + response window. |
-| `ResponseWindow_s` | Response window s | Window during which behavior is scored. |
-| `RewardDelay_s` | Reward delay s | Delay before the response/reward phase. |
+| `TrialDuration_s` | Trial duration s | Saved compatibility value from the generator; computed as the longer of sound end or latest possible delayed reward end. Classic runtime scoring uses `ResponseWindow_s` from trial start. |
+| `ResponseWindow_s` | Response window s | Classic Go/No-Go scoring window. It starts at trial start, not after the sound. |
+| `RewardDelay_s` | Reward delay s | For classic GO HITs, delay from the moment the HIT criterion is reached to the reward pulse. DMTS uses it as the delay from response-window end to reward delivery. |
 
 ### Outcome
 
@@ -97,7 +97,7 @@ Lickthreshold=<volts>
 Minlickcount=<count>
 ```
 
-A response is scored when the signal crosses above `Lickthreshold` at least `Minlickcount` times during the response window.
+A response is scored when the signal crosses above `Lickthreshold` at least `Minlickcount` times during the response window. In classic Go/No-Go, that response window starts at trial start, so the sound is shown inside the scoring window when the protocol preview is drawn. If `RewardDelay_s` is greater than zero, a GO HIT is scored immediately but the output reward pulse is sent at `HIT_time + RewardDelay_s`.
 
 Classic Go/No-Go starts trials differently depending on the trigger source. With `TriggerTypeDropDown=IRFork`, after the trial ends and the ITI has elapsed, the trigger signal must be observed below the active threshold before the next upward crossing can start a new trial. With `TriggerTypeDropDown=Lick`, the next trial starts as soon as the ITI has elapsed; licks are then counted during the response window.
 

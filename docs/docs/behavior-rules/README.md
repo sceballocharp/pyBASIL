@@ -56,6 +56,8 @@ For `TriggerTypeDropDown=Lick`:
 - Lick threshold crossings are counted during the active response window.
 - A lick that starts during ITI is not meant to be the required trial-start event.
 
+For classic Go/No-Go, `ResponseWindow_s` starts at trial start. The sound is played inside that window, so the protocol preview should not draw the response/reward window as starting after sound offset. `RewardDelay_s` delays the response-contingent GO reward from the HIT time; it does not delay or move the scoring window.
+
 ### IRFork Scoring
 
 Functions:
@@ -99,6 +101,7 @@ For no-go trials, reaching `Minlickcount` is FA; otherwise CR.
 Current contract:
 
 - `RewardGo` applies after a GO HIT.
+- In classic Go/No-Go, `RewardDelay_s` sends that GO HIT reward at `HIT_time + RewardDelay_s`.
 - `Pavlov` applies to GO trials regardless of HIT/MISS.
 - `Pavlov=1` rewards every GO trial.
 - HIT/MISS scoring remains behavioral even when Pavlov reward is delivered.

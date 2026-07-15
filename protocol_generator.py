@@ -249,7 +249,7 @@ class ProtocolGenerator(tk.Tk):
     def _bind_updates(self):
         for variable in self.variables.values():
             variable.trace_add("write", lambda *_args: self.schedule_redraw())
-        for key in ("Sounddelay_s", "SoundDuration_s", "RewardDelay_s", "ResponseWindow_s"):
+        for key in ("Sounddelay_s", "SoundDuration_s", "RewardDelay_s", "ResponseWindow_s", "Rewardduration_ms"):
             self.variables[key].trace_add("write", lambda *_args: self.sync_trial_duration())
         self.variables["GoWeight"].trace_add("write", lambda *_args: self.sync_weight("GoWeight"))
         self.variables["NoGoWeight"].trace_add("write", lambda *_args: self.sync_weight("NoGoWeight"))
@@ -302,10 +302,12 @@ class ProtocolGenerator(tk.Tk):
         self._syncing_weight = False
 
     def sync_trial_duration(self):
-        values = [self.parse_float(key, None) for key in ("Sounddelay_s", "SoundDuration_s", "RewardDelay_s", "ResponseWindow_s")]
+        values = [self.parse_float(key, None) for key in ("Sounddelay_s", "SoundDuration_s", "RewardDelay_s", "ResponseWindow_s", "Rewardduration_ms")]
         if any(value is None or value < 0 for value in values):
             return
-        self.variables["TrialDuration_s"].set(f"{sum(values):.6g}")
+        sound_end_s = values[0] + values[1]
+        latest_reward_end_s = values[3] + values[2] + values[4] / 1000.0
+        self.variables["TrialDuration_s"].set(f"{max(sound_end_s, latest_reward_end_s):.6g}")
 
     def update_response_visibility(self):
         trigger = self.variables["TriggerTypeDropDown"].get()
@@ -492,8 +494,8 @@ class ProtocolGenerator(tk.Tk):
         rows = [
             ("ITI", 0, "#6c757d", [(timing["iti_start"], timing["iti_end"], "ITI")]),
             ("Sound onset", 1, "#1f77b4", [(timing["sound_start"], timing["sound_end"], "sound")]),
-            ("Response window", 2, "#2ca02c", [(timing["response_start"], timing["response_end"], "response window")]),
-            ("Reward (HIT)", 3, "#17a589", [(timing["reward_start"], timing["reward_end"], "reward")]),
+            ("Response/reward window", 2, "#2ca02c", [(timing["response_start"], timing["response_end"], "response window")]),
+            ("Reward possible", 3, "#17a589", [(timing["reward_start"], timing["reward_end"], "delayed reward")]),
             ("Timeout (FA)", 4, "#d62728", [(timing["timeout_start"], timing["timeout_end"], "timeout")]),
             ("Trial", 5, "#9467bd", [(timing["trial_start"], timing["trial_end"], "trial")]),
         ]
@@ -505,7 +507,19 @@ class ProtocolGenerator(tk.Tk):
             for start, end, text in spans:
                 self.draw_span(margin_left, y, scale, start, end, color, text)
         self.draw_double_arrow(margin_left, margin_top + 22, scale, timing["iti_rand_min_end"], timing["iti_rand_max_end"], "#6c757d", "rand range")
-        self.summary_var.set(f"Go/no-go cycle {timing['cycle']:.3g} s")
+        if timing["reward_delay"] > 0:
+            self.draw_double_arrow(
+                margin_left,
+                margin_top + row_gap * 3 + 18,
+                scale,
+                timing["response_start"],
+                timing["reward_start"],
+                "#17a589",
+                "RewardDelay_s",
+            )
+        self.summary_var.set(
+            f"Go/no-go response window starts at trial start; reward delay {timing['reward_delay']:.3g} s"
+        )
 
     def draw_lever_preview(self):
         canvas = self.canvas
@@ -615,13 +629,17 @@ class ProtocolGenerator(tk.Tk):
         trial_start = 0.0
         sound_start = trial_start + max(0, self.parse_float("Sounddelay_s", 0))
         sound_end = sound_start + max(0, self.parse_float("SoundDuration_s", 0.2))
-        response_start = sound_end + max(0, self.parse_float("RewardDelay_s", 0))
+        response_start = trial_start
         response_end = response_start + max(0, self.parse_float("ResponseWindow_s", 2))
-        reward_start = response_end
-        reward_end = reward_start + max(0, self.parse_float("Rewardduration_ms", 40) / 1000)
+        reward_delay = max(0, self.parse_float("RewardDelay_s", 0))
+        reward_start = response_start + reward_delay
+        reward_end = response_end + reward_delay
+        reward_duration = max(0, self.parse_float("Rewardduration_ms", 40) / 1000)
+        reward_pulse_end = reward_start + reward_duration
+        latest_reward_pulse_end = reward_end + reward_duration
         timeout_end = response_end + max(0, self.parse_float("PunishNoGoFA", 1))
-        trial_end = trial_start + max(0.01, self.parse_float("TrialDuration_s", 2))
-        iti_start = max(trial_end, reward_end)
+        trial_end = response_end
+        iti_start = max(trial_end, sound_end, latest_reward_pulse_end)
         iti_end = iti_start + iti
         return {
             "iti": iti,
@@ -634,8 +652,11 @@ class ProtocolGenerator(tk.Tk):
             "sound_end": sound_end,
             "response_start": response_start,
             "response_end": response_end,
+            "reward_delay": reward_delay,
             "reward_start": reward_start,
             "reward_end": reward_end,
+            "reward_pulse_end": reward_pulse_end,
+            "latest_reward_pulse_end": latest_reward_pulse_end,
             "timeout_start": response_end,
             "timeout_end": timeout_end,
             "trial_end": trial_end,
