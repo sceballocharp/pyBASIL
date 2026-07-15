@@ -45,6 +45,8 @@ Current top-level sections:
 
 The root frame is split into two main columns. `parameter_column` is placed at root column `1` and spans rows `0` through `5`, so the parameter panels occupy the full GUI height on the right. The operational controls, live plot, and log are placed in root column `0`. Parameter panels are arranged as two label-entry groups per row, using grid columns `0/1` and `2/3`.
 
+`Trigger And Sound` also includes read-only status text for the selected behavior channel and active task rule. These labels are backed by `behavior_channel_var` and `behavior_rule_var`, and are refreshed by `update_behavior_readouts()`.
+
 ## Layout System
 
 The GUI uses Tkinter `ttk` widgets with the `grid()` geometry manager for most controls.

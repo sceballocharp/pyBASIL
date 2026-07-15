@@ -34,14 +34,18 @@ Current top-level sections:
 
 | Section | Frame title | Main responsibility |
 | --- | --- | --- |
-| Run setup | `Control And Files` | Start/stop, import parameters, NWB save, `.bin` viewer, simulation, file selectors, reward train, stim generator. |
-| Session | `Session` | User, mouse, project, output format, save root. |
-| Acquisition | `Acquisition` | NI device, channel list, acquisition rate, plotting window, callback size, terminal config, scaling. |
-| Trigger and sound | `Trigger And Sound` | Trigger source, binary writing, output pulse, sound playback, threshold, pulse duration, sound ID/level, task-specific checkboxes. |
-| Main body left | `Live Acquisition` | Live plot canvas. |
-| Main body right top | `Closed Loop Sequence` | Sequence length, values, weights, seed, max trials, sequence status. |
-| Main body right bottom | `Trial Structure` | Task timing, response criteria, reward settings, task-specific fields. |
-| Output | `Output` | Text log. |
+| Left column, top | `Control And Files` | Start/stop, import parameters, NWB save, `.bin` viewer, simulation, file selectors, reward train, stim generator. |
+| Left column | `Session` | User, mouse, project, output format, save root. |
+| Left column | `Acquisition` | NI device, channel list, acquisition rate, plotting window, callback size, and scaling. Terminal configuration is kept internal. |
+| Left column | `Trigger And Sound` | Trigger source, binary writing, output pulse, sound playback, threshold, pulse duration, sound ID/level, task-specific checkboxes. |
+| Left column, center | `Live Acquisition` | Live plot canvas. |
+| Left column, bottom | `Output` | Text log. |
+| Right parameter column, top | `Closed Loop Sequence` | Sequence length, values, weights, seed, max trials, sequence status. |
+| Right parameter column, bottom | `Trial Structure` | Task timing, response criteria, reward settings, task-specific fields. |
+
+The root frame is split into two main columns. `parameter_column` is placed at root column `1` and spans rows `0` through `5`, so the parameter panels occupy the full GUI height on the right. The operational controls, live plot, and log are placed in root column `0`. Parameter panels are arranged as two label-entry groups per row, using grid columns `0/1` and `2/3`.
+
+`Trigger And Sound` also includes read-only status text for the selected behavior channel and active task rule. These labels are backed by `behavior_channel_var` and `behavior_rule_var`, and are refreshed by `update_behavior_readouts()`.
 
 ## Layout System
 

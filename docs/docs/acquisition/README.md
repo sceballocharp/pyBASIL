@@ -34,7 +34,7 @@ Start Live button
   -> start_live()
       -> clear_buffers()
       -> prepare_session_folder()
-      -> open_irfork_file()
+      -> open_behavior_signal_file()
       -> setup_tasks() or simulation mode
       -> load_sound_file() when sound playback is enabled
       -> acquisition_loop() in a worker thread
@@ -63,14 +63,19 @@ This makes timing independent of GUI refresh rate and mostly independent of Pyth
 The GUI `Channels` field is parsed by `parse_channels()`. The default channel string follows the rig convention:
 
 ```text
-ai6,ai5,ai1
+ai6,ai5,ai1,ai0
 ```
 
 The current code treats:
 
-- Column 0 as the primary behavior signal, historically IRFork but also used for lever and lick voltage.
-- Column 1 as `SoundCopy` when available.
-- Additional channels may be present but are not central to current behavior scoring.
+- `ai6` as the primary behavior signal for IRFork and Lever tasks.
+- `ai0` as the primary behavior signal when `TriggerTypeDropDown=Lick`.
+- `ai5` as `SoundCopy` when available.
+- Additional channels, such as `ai1`, as acquired compatibility signals that are not central to current behavior scoring.
+
+`handle_data()` uses `get_behavior_signal_channel_name()` and `get_behavior_signal_column()` to select the active behavior signal from the channel list. If the selected channel is missing, the code logs a warning and falls back to the first acquired channel.
+
+Because lick mode uses `ai0`, the `Channels` field should include `ai0` whenever lick-triggered behavior is run.
 
 If adding a new channel-dependent feature, keep `normalize_read()`, `handle_data()`, binary writing, live plotting, and NWB export aligned.
 
@@ -93,9 +98,9 @@ Common queue message kinds:
 
 ## Binary Writing During Acquisition
 
-When `Write IRFork.bin` is enabled, `open_irfork_file()` opens:
+When `Write BehaviorSignal.bin` is enabled, `open_behavior_signal_file()` opens:
 
-- `IRFork.bin`
+- `BehaviorSignal.bin`
 - `SoundCopy.bin`
 - `TrialState.bin`
 
@@ -103,7 +108,7 @@ When `Write IRFork.bin` is enabled, `open_irfork_file()` opens:
 
 ## Extension Notes
 
-- Add new live signal streams in `handle_data()` and close them in `close_irfork_file()`.
+- Add new live signal streams in `handle_data()` and close them in `close_behavior_signal_file()`.
 - If a new signal needs plotting, also update the plotting scale and legend.
 - If a new signal needs NWB export, update `save_nwb()`, `write_nwb_contract_hdf5()`, and validation.
 - Keep acquisition-time decisions based on sample time, not wall-clock GUI time.

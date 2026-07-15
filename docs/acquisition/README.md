@@ -34,7 +34,7 @@ Start Live button
   -> start_live()
       -> clear_buffers()
       -> prepare_session_folder()
-      -> open_irfork_file()
+      -> open_behavior_signal_file()
       -> setup_tasks() or simulation mode
       -> load_sound_file() when sound playback is enabled
       -> acquisition_loop() in a worker thread
@@ -98,9 +98,9 @@ Common queue message kinds:
 
 ## Binary Writing During Acquisition
 
-When `Write IRFork.bin` is enabled, `open_irfork_file()` opens:
+When `Write BehaviorSignal.bin` is enabled, `open_behavior_signal_file()` opens:
 
-- `IRFork.bin`
+- `BehaviorSignal.bin`
 - `SoundCopy.bin`
 - `TrialState.bin`
 
@@ -108,7 +108,7 @@ When `Write IRFork.bin` is enabled, `open_irfork_file()` opens:
 
 ## Extension Notes
 
-- Add new live signal streams in `handle_data()` and close them in `close_irfork_file()`.
+- Add new live signal streams in `handle_data()` and close them in `close_behavior_signal_file()`.
 - If a new signal needs plotting, also update the plotting scale and legend.
 - If a new signal needs NWB export, update `save_nwb()`, `write_nwb_contract_hdf5()`, and validation.
 - Keep acquisition-time decisions based on sample time, not wall-clock GUI time.

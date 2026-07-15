@@ -22,7 +22,7 @@ It also writes `parameters.dat` and initializes:
 | `parameters.dat` | `write_parameters_dat()` | Session-level parameter snapshot written at session start. |
 | `TrialLog.csv` | `write_trial_log()` | Trial-by-trial behavioral outcomes and timing. |
 | `Parameters.csv` | `write_parameters_csv()` | Trial-by-trial parameter rows and block labels. |
-| `IRFork.bin` | `handle_data()` | Continuous primary behavior signal as binary doubles. |
+| `BehaviorSignal.bin` | `handle_data()` | Continuous selected behavior signal as binary doubles. Older sessions may contain the legacy name `IRFork.bin`. |
 | `SoundCopy.bin` | `handle_data()` | Continuous recorded sound-copy channel as binary doubles. |
 | `TrialState.bin` | `handle_data()` | Continuous 0/1 trial-state trace as binary doubles. |
 | `*.nwb` | `save_nwb()` | NWB export with acquisition, stimulus, trial, and compatibility datasets. |
@@ -75,7 +75,7 @@ Readers should use the acquisition rate from `parameters.dat` to reconstruct sam
 
 Current binary streams:
 
-- `IRFork.bin`: primary behavior signal.
+- `BehaviorSignal.bin`: selected behavior signal used for trial detection and scoring.
 - `SoundCopy.bin`: sound-copy signal, or zeros when the column is unavailable.
 - `TrialState.bin`: synthetic trial-state trace.
 
@@ -110,11 +110,12 @@ Main functions:
 `validate_nwb_contract_hdf5()` expects paths such as:
 
 - `/acquisition/IRFork/data`
+- `/acquisition/BehaviorSignal/data`
 - `/stimulus/presentation/SoundCopy/data`
 - `/acquisition/Parameters/key`
 - `/acquisition/Parameters/value`
 
-If new datasets are required by downstream tools, add them in `write_nwb_contract_hdf5()` and update validation.
+The NWB export keeps `/acquisition/IRFork/data` as a compatibility trace but also writes `/acquisition/BehaviorSignal/data` as the current descriptive name. If new datasets are required by downstream tools, add them in `write_nwb_contract_hdf5()` and update validation.
 
 ## Trial Anchors In NWB
 

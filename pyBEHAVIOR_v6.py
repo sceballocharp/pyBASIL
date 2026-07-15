@@ -83,7 +83,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.trial_state_intervals = []
         self.full_trigger_pulses = []
         self.full_sound_outputs = []
-        self.irfork_file = None
+        self.behavior_signal_file = None
         self.soundcopy_file = None
         self.trial_state_file = None
         self.exp_folder = ""
@@ -91,7 +91,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.last_trigger_time = -1e12
         self.last_trial_end_time_s = -1e12
         self.next_trial_allowed_time_s = -1e12
-        self.current_ir_baseline = 0.0
+        self.current_behavior_baseline = 0.0
         self.sound_data = None
         self.sound_loaded = False
         self.sound_sequence = []
@@ -254,7 +254,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         trig = ttk.LabelFrame(root, text="Trigger And Sound")
         trig.grid(row=3, column=0, sticky="ew", pady=(0, 6))
         self.trigger_type = tk.StringVar(value="IRFork")
-        self.write_irfork_bin = tk.BooleanVar(value=True)
+        self.write_behavior_signal_bin = tk.BooleanVar(value=True)
         self.trigger_output_on_crossing = tk.BooleanVar(value=True)
         self.play_sound_on_crossing = tk.BooleanVar(value=True)
         self.threshold_v = tk.StringVar(value="1")
@@ -263,9 +263,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.sound_level = tk.StringVar(value="1")
         self.lever_require_release = tk.BooleanVar(value=False)
         self.dmts_random_match_trials = tk.BooleanVar(value=False)
+        self.behavior_channel_var = tk.StringVar(value="")
+        self.behavior_rule_var = tk.StringVar(value="")
         ttk.Label(trig, text="Trigger").grid(row=0, column=0, padx=(4, 4))
         ttk.Combobox(trig, textvariable=self.trigger_type, values=("IRFork", "Lick", "None"), width=9).grid(row=0, column=1)
-        ttk.Checkbutton(trig, text="Write IRFork.bin", variable=self.write_irfork_bin).grid(row=0, column=2, padx=8)
+        ttk.Checkbutton(trig, text="Write BehaviorSignal.bin", variable=self.write_behavior_signal_bin).grid(row=0, column=2, padx=8)
         ttk.Checkbutton(trig, text="Trigger output", variable=self.trigger_output_on_crossing).grid(row=0, column=3, padx=8)
         ttk.Button(trig, text="Trigger Output", command=self.send_output_pulse).grid(row=0, column=4, padx=8)
         ttk.Checkbutton(trig, text="Play sound", variable=self.play_sound_on_crossing).grid(row=0, column=5, padx=8)
@@ -278,6 +280,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.lever_release_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
         self.dmts_random_match_check = ttk.Checkbutton(trig, text="Random DMTS sounds", variable=self.dmts_random_match_trials)
         self.dmts_random_match_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
+        ttk.Label(trig, textvariable=self.behavior_channel_var).grid(row=2, column=0, columnspan=4, padx=6, pady=(2, 4), sticky="w")
+        ttk.Label(trig, textvariable=self.behavior_rule_var).grid(row=2, column=4, columnspan=6, padx=6, pady=(2, 4), sticky="w")
 
         body = ttk.Frame(root)
         body.grid(row=4, column=0, sticky="nsew")
@@ -369,10 +373,14 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.dmts_sound_ids_widgets = self._entry(trial, 2, "Sound IDs", self.dmts_sound_ids, width=16, row=10)
         for var in (self.sound_delay_s, self.delay_s, self.sound_duration_s, self.response_window_s, self.reward_delay_s):
             var.trace_add("write", lambda *_: self.update_trial_duration())
-        self.task_type.trace_add("write", lambda *_: (self.update_task_parameter_visibility(), self.update_trial_duration()))
-        self.trigger_type.trace_add("write", lambda *_: self.update_task_parameter_visibility())
+        self.task_type.trace_add("write", lambda *_: (self.update_task_parameter_visibility(), self.update_trial_duration(), self.update_behavior_readouts()))
+        self.trigger_type.trace_add("write", lambda *_: (self.update_task_parameter_visibility(), self.update_behavior_readouts()))
+        self.channels.trace_add("write", lambda *_: self.update_behavior_readouts())
+        for var in (self.min_lick_count, self.lick_threshold, self.hit_threshold_s, self.lever_hold_time_s, self.lever_require_release):
+            var.trace_add("write", lambda *_: self.update_behavior_readouts())
         self.update_trial_duration()
         self.update_task_parameter_visibility()
+        self.update_behavior_readouts()
 
         log_frame = ttk.LabelFrame(root, text="Output")
         log_frame.grid(row=5, column=0, sticky="nsew", pady=(8, 0))
@@ -431,6 +439,25 @@ class BehaviorAcquisitionApp(tk.Tk):
         else:
             label_widget.grid_remove()
             entry_widget.grid_remove()
+
+    def update_behavior_readouts(self):
+        if not hasattr(self, "behavior_channel_var"):
+            return
+        channel = self.get_behavior_signal_channel_name()
+        self.behavior_channel_var.set(f"Behavior signal: {channel} (IRFork/Lever ai6, Lick ai0; SoundCopy ai5)")
+        if self.is_lever_task():
+            release = "release required" if self.lever_require_release.get() else "reward at hold"
+            rule = f"Lever: start on ai6 crossing; hold {self.get_lever_hold_time_s():g} s, {release}"
+        elif self.is_dmts_task():
+            if self.is_lick_trigger():
+                rule = f"DMTS lick: count >= {self.get_min_lick_count()} licks on ai0 in response window"
+            else:
+                rule = f"DMTS IRFork: response >= {self.parse_float(self.hit_threshold_s, 50):g}% RW on ai6"
+        elif self.is_lick_trigger():
+            rule = f"Classic lick: trial starts after ITI; GO HIT >= {self.get_min_lick_count()} licks on ai0"
+        else:
+            rule = f"Classic IRFork: trial starts on ai6 crossing; GO HIT >= {self.parse_float(self.hit_threshold_s, 50):g}% RW"
+        self.behavior_rule_var.set(rule)
 
     def update_trial_duration(self):
         sound_duration_s = self.parse_float(self.sound_duration_s, 0)
@@ -918,7 +945,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.open_results_window()
         self.set_status("green")
         self.prepare_session_folder()
-        self.open_irfork_file()
+        self.open_behavior_signal_file()
         if self.simulation_mode.get():
             self.close_tasks()
             self.log("Simulation mode enabled: generated IR crossings will be used.")
@@ -939,7 +966,7 @@ class BehaviorAcquisitionApp(tk.Tk):
                 self.finish_active_lever_trial(trial_end_s, success=False)
             else:
                 self.finish_active_trial(trial_end_s)
-        self.close_irfork_file()
+        self.close_behavior_signal_file()
         self.close_tasks()
         if self.output_format.get() == "NWB":
             self.save_nwb(silent=True)
@@ -956,7 +983,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.trial_state_intervals.clear()
         self.full_trigger_pulses.clear()
         self.full_sound_outputs.clear()
-        self.current_ir_baseline = 0.0
+        self.current_behavior_baseline = 0.0
 
     def clear_plot(self):
         self.clear_buffers()
@@ -1020,12 +1047,12 @@ class BehaviorAcquisitionApp(tk.Tk):
     def handle_data(self, times, rows):
         if not rows:
             return
-        ir_col = self.get_behavior_signal_column(rows)
-        raw_ir_values = [row[ir_col] for row in rows]
+        behavior_col = self.get_behavior_signal_column(rows)
+        raw_behavior_values = [row[behavior_col] for row in rows]
         soundcopy_col = self.get_soundcopy_column(rows)
         raw_soundcopy_values = [row[soundcopy_col] for row in rows] if soundcopy_col is not None else [0.0] * len(rows)
         self.time_buffer.extend(times)
-        self.data_buffer.extend(raw_ir_values)
+        self.data_buffer.extend(raw_behavior_values)
         self.soundcopy_buffer.extend(raw_soundcopy_values)
         self.full_soundcopy_buffer.extend(raw_soundcopy_values)
 
@@ -1036,11 +1063,11 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.data_buffer.pop(0)
             if self.soundcopy_buffer:
                 self.soundcopy_buffer.pop(0)
-        self.current_ir_baseline = statistics.median(self.data_buffer) if self.subtract_baseline.get() and self.data_buffer else 0.0
-        corrected_ir_values = [value - self.current_ir_baseline for value in raw_ir_values]
-        self.check_trigger(times, corrected_ir_values)
-        if self.irfork_file is not None:
-            self.irfork_file.write(struct.pack(f"{len(rows)}d", *raw_ir_values))
+        self.current_behavior_baseline = statistics.median(self.data_buffer) if self.subtract_baseline.get() and self.data_buffer else 0.0
+        corrected_behavior_values = [value - self.current_behavior_baseline for value in raw_behavior_values]
+        self.check_trigger(times, corrected_behavior_values)
+        if self.behavior_signal_file is not None:
+            self.behavior_signal_file.write(struct.pack(f"{len(rows)}d", *raw_behavior_values))
         if self.soundcopy_file is not None and soundcopy_col is not None:
             self.soundcopy_file.write(struct.pack(f"{len(rows)}d", *raw_soundcopy_values))
         if self.trial_state_file is not None:
@@ -1174,22 +1201,22 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.trial_log_path = os.path.join(self.exp_folder, "TrialLog.csv")
         self.parameters_log_path = os.path.join(self.exp_folder, "Parameters.csv")
 
-    def open_irfork_file(self):
-        self.close_irfork_file()
-        if not self.write_irfork_bin.get():
+    def open_behavior_signal_file(self):
+        self.close_behavior_signal_file()
+        if not self.write_behavior_signal_bin.get():
             return
         if not self.exp_folder:
             self.prepare_session_folder()
-        self.irfork_file = open(os.path.join(self.exp_folder, "IRFork.bin"), "wb")
+        self.behavior_signal_file = open(os.path.join(self.exp_folder, "BehaviorSignal.bin"), "wb")
         self.soundcopy_file = open(os.path.join(self.exp_folder, "SoundCopy.bin"), "wb")
         self.trial_state_file = open(os.path.join(self.exp_folder, "TrialState.bin"), "wb")
-        self.log(f"Writing IRFork.bin, SoundCopy.bin, and TrialState.bin: {self.exp_folder}")
+        self.log(f"Writing BehaviorSignal.bin, SoundCopy.bin, and TrialState.bin: {self.exp_folder}")
 
-    def close_irfork_file(self):
-        if self.irfork_file is not None:
-            self.irfork_file.close()
-            self.irfork_file = None
-            self.log("Closed IRFork.bin.")
+    def close_behavior_signal_file(self):
+        if self.behavior_signal_file is not None:
+            self.behavior_signal_file.close()
+            self.behavior_signal_file = None
+            self.log("Closed BehaviorSignal.bin.")
         if self.soundcopy_file is not None:
             self.soundcopy_file.close()
             self.soundcopy_file = None
@@ -1209,6 +1236,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "NICard_filename": self.ni_script.get().replace(os.sep, "/"),
             "Sound_filename": self.sound_file.get().replace(os.sep, "/"),
             "IRForkColumn": self.get_behavior_signal_column() + 1,
+            "BehaviorSignalColumn": self.get_behavior_signal_column() + 1,
             "SoundCopyColumn": (self.get_channel_index("ai5") + 1) if self.get_channel_index("ai5") is not None else 2,
             "BehaviorSignalChannel": self.get_behavior_signal_channel_name(),
             "Channels": self.channels.get(),
@@ -1267,6 +1295,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "NICard_filename",
             "Sound_filename",
             "IRForkColumn",
+            "BehaviorSignalColumn",
             "SoundCopyColumn",
             "BehaviorSignalChannel",
             "SimulationMode",
@@ -1354,6 +1383,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "trigger_sample": trigger_sample,
             "task_type": params["TaskType"],
             "behavior_signal_channel": params["BehaviorSignalChannel"],
+            "behavior_signal_column": params["BehaviorSignalColumn"],
             "channels": params["Channels"],
             "sample_sound_id": sound_id if self.is_dmts_task() else params["SampleSoundId"],
             "test_sound_id": trial_test_sound_id if self.is_dmts_task() and trial_test_sound_id is not None else params["TestSoundId"],
@@ -2470,7 +2500,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         times = [i / rate for i in range(len(values))]
         self.time_buffer = times
         self.data_buffer = values
-        self.current_ir_baseline = statistics.median(values) if self.subtract_baseline.get() and values else 0.0
+        self.current_behavior_baseline = statistics.median(values) if self.subtract_baseline.get() and values else 0.0
         self.draw_plot(times, values)
         self.log(f"Opened {os.path.basename(path)}: {len(values)} samples at {rate:g} Hz.")
 
@@ -2523,18 +2553,18 @@ class BehaviorAcquisitionApp(tk.Tk):
                 messagebox.showwarning("Save NWB", msg)
             return False
 
-        irfork_path = os.path.join(self.exp_folder, "IRFork.bin")
-        if not os.path.exists(irfork_path):
-            msg = f"Cannot save NWB: IRFork.bin was not found in {self.exp_folder}."
+        behavior_signal_path = self.get_behavior_signal_binary_path()
+        if not behavior_signal_path:
+            msg = f"Cannot save NWB: BehaviorSignal.bin was not found in {self.exp_folder}."
             if silent:
                 self.log(msg)
             else:
                 messagebox.showwarning("Save NWB", msg)
             return False
 
-        data = self.read_irfork_binary(irfork_path)
+        data = self.read_binary_double_trace(behavior_signal_path)
         if len(data) == 0:
-            msg = "Cannot save NWB: IRFork.bin contains no samples."
+            msg = f"Cannot save NWB: {os.path.basename(behavior_signal_path)} contains no samples."
             if silent:
                 self.log(msg)
             else:
@@ -2558,7 +2588,17 @@ class BehaviorAcquisitionApp(tk.Tk):
                 unit="volts",
                 starting_time=0.0,
                 rate=rate,
-                description="IR fork analog input saved from IRFork.bin.",
+                description="Compatibility behavior signal trace. Current sessions save this signal in BehaviorSignal.bin.",
+            )
+        )
+        nwbfile.add_acquisition(
+            TimeSeries(
+                name="BehaviorSignal",
+                data=data,
+                unit="volts",
+                starting_time=0.0,
+                rate=rate,
+                description="Selected behavior signal used for trial detection and scoring.",
             )
         )
         trigger_trace = self.build_trigger_trace(len(data), rate)
@@ -2686,6 +2726,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("Device", self.device.get()),
             ("Channels", params["Channels"]),
             ("BehaviorSignalChannel", params["BehaviorSignalChannel"]),
+            ("BehaviorSignalColumn", params["BehaviorSignalColumn"]),
             ("frec", rate),
             ("TaskType", params["TaskType"]),
             ("TriggerType", params["TriggerTypeDropDown"]),
@@ -2735,6 +2776,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "/stimulus/presentation/WhichSound/data",
             "/acquisition/Reward/data",
             "/acquisition/TrialType/data",
+            "/acquisition/BehaviorSignal/data",
             "/acquisition/IRFork/data",
             "/intervals/trials/id",
             "/intervals/trials/sound_ids",
@@ -2782,13 +2824,15 @@ class BehaviorAcquisitionApp(tk.Tk):
             if bad_hmcf:
                 raise RuntimeError(f"NWB contract HMCF has unsupported values: {sorted(bad_hmcf)}")
 
-            ir_count = len(h5f["/acquisition/IRFork/data"])
+            signal_count = len(h5f["/acquisition/BehaviorSignal/data"])
+            if len(h5f["/acquisition/IRFork/data"]) != signal_count:
+                raise RuntimeError("NWB contract BehaviorSignal and IRFork compatibility traces have different lengths.")
             for item in (
                 "/stimulus/presentation/SoundCopy/data",
                 "/stimulus/presentation/WhichSound/data",
                 "/acquisition/Reward/data",
             ):
-                if len(h5f[item]) != ir_count:
+                if len(h5f[item]) != signal_count:
                     raise RuntimeError(f"NWB contract continuous signal length mismatch: {item}")
 
             anchor_count = int((h5f["/acquisition/TrialType/data"][()] == 99).sum())
@@ -2823,7 +2867,18 @@ class BehaviorAcquisitionApp(tk.Tk):
             return "FalseAlarm"
         return ""
 
-    def read_irfork_binary(self, path):
+    def get_behavior_signal_binary_path(self):
+        if not self.exp_folder:
+            return ""
+        behavior_signal_path = os.path.join(self.exp_folder, "BehaviorSignal.bin")
+        if os.path.exists(behavior_signal_path):
+            return behavior_signal_path
+        legacy_irfork_path = os.path.join(self.exp_folder, "IRFork.bin")
+        if os.path.exists(legacy_irfork_path):
+            return legacy_irfork_path
+        return ""
+
+    def read_binary_double_trace(self, path):
         if np is not None:
             return np.fromfile(path, dtype="<f8")
         with open(path, "rb") as f:
@@ -2867,7 +2922,7 @@ class BehaviorAcquisitionApp(tk.Tk):
     def get_recorded_soundcopy_trace(self, sample_count):
         soundcopy_path = os.path.join(self.exp_folder, "SoundCopy.bin") if self.exp_folder else ""
         if soundcopy_path and os.path.exists(soundcopy_path):
-            values = self.read_irfork_binary(soundcopy_path)
+            values = self.read_binary_double_trace(soundcopy_path)
         elif self.full_soundcopy_buffer:
             values = self.full_soundcopy_buffer
         else:
@@ -3364,8 +3419,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         step = max(1, len(values) // max_points)
         times = times[::step]
         values = values[::step]
-        ir_baseline = self.current_ir_baseline if self.subtract_baseline.get() else 0.0
-        values = [value - ir_baseline for value in values]
+        behavior_baseline = self.current_behavior_baseline if self.subtract_baseline.get() else 0.0
+        values = [value - behavior_baseline for value in values]
         min_t, max_t = times[0], times[-1] if times[-1] != times[0] else times[0] + 1
         min_v, max_v = min(values), max(values)
         overlay_min_v, overlay_max_v = 0.0, 1.0
@@ -3448,10 +3503,10 @@ class BehaviorAcquisitionApp(tk.Tk):
             8,
             8,
             anchor="nw",
-            text=f"Left {min_v:.2f} to {max_v:.2f} V, right {overlay_min_v:.2f} to {overlay_max_v:.2f}, baseline {ir_baseline:.2f} V",
+            text=f"Left {min_v:.2f} to {max_v:.2f} V, right {overlay_min_v:.2f} to {overlay_max_v:.2f}, baseline {behavior_baseline:.2f} V",
             fill="#555555",
         )
-        self.plot_canvas.create_text(width - 120, 10, anchor="nw", text="IRFork", fill="#1f77b4")
+        self.plot_canvas.create_text(width - 140, 10, anchor="nw", text="Behavior signal", fill="#1f77b4")
         self.plot_canvas.create_text(width - 120, 26, anchor="nw", text="Trigger output", fill="#d97904")
         self.plot_canvas.create_text(width - 120, 42, anchor="nw", text="Sound output", fill="#2ca02c")
         self.plot_canvas.create_text(width - 120, 58, anchor="nw", text="Trial state", fill="#6f42c1")

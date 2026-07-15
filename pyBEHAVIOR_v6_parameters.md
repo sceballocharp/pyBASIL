@@ -26,7 +26,7 @@ These are shared by every protocol tab.
 | `TriggerTypeDropDown` | Trigger | Response signal source: `IRFork`, `Lick`, or `None`. |
 | `OuputformatDropDown` | Output format | Output format selector. Note the historical misspelling is preserved for compatibility. |
 
-The GUI `Channels` field should include `ai6,ai5,ai1,ai0` for the current rig layout. Runtime behavior signal selection is trigger-dependent: IRFork and Lever use `ai6`; Lick uses `ai0`; SoundCopy uses `ai5`.
+The GUI `Channels` field should include `ai6,ai5,ai1,ai0` for the current rig layout. Runtime behavior signal selection is trigger-dependent: IRFork and Lever use `ai6`; Lick uses `ai0`; SoundCopy uses `ai5`. The selected behavior signal is written to `BehaviorSignal.bin` and recorded as `BehaviorSignalChannel` in session metadata.
 
 ## Classic Go/No-Go
 
