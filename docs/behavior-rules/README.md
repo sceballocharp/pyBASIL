@@ -12,6 +12,9 @@ Trials are created by `create_trial()` and stored in `self.trial_rows`. The curr
 - `active_high_start_s`
 - `active_crossing_total_s`
 - `active_lick_count`
+- `active_left_lick_count`
+- `active_right_lick_count`
+- `active_choice_side`
 - `active_reward_decided`
 - `active_reward_sent`
 - `active_trial_base_iti_s`
@@ -220,6 +223,57 @@ At the reward-period decision:
 | sample != test | yes | FA |
 
 Only HIT sends reward through `maybe_send_go_reward()`. FA can add the no-go timeout.
+
+## tAC
+
+Task identifier:
+
+```text
+TaskType=tAC
+```
+
+tAC is a two-alternative choice task with no fork/IR requirement. The trial starts automatically when the ITI has elapsed. The first closed-loop sequence value is treated as the left-correct sound and the second value as the right-correct sound.
+
+Main functions:
+
+- `start_tac_trial()`
+- `start_active_tac_trial()`
+- `check_tac_sample()`
+- `add_active_tac_lick()`
+- `evaluate_active_tac_trial()`
+- `finish_active_tac_trial()`
+
+### tAC Trial Start
+
+After `next_trial_allowed_time_s`, `check_tac_sample()` starts the next trial immediately. It does not wait for an IRFork crossing and does not require an animal-present signal.
+
+### tAC Choice Scoring
+
+Left and right licks are read from independent channels:
+
+```text
+TACLeftChannel=ai0
+TACRightChannel=ai1
+```
+
+Each side has its own threshold:
+
+```text
+TACLeftThreshold
+TACRightThreshold
+```
+
+The first side to reach `TACMinlickcount` during `ResponseWindow_s` becomes the choice.
+
+| Correct side | Chosen side | Outcome |
+| --- | --- | --- |
+| left | left | HIT |
+| left | right | FA |
+| right | right | HIT |
+| right | left | FA |
+| left/right | no choice | MISS |
+
+Correct choices use `maybe_send_go_reward()` with `RewardGo` and `RewardDelay_s`. Wrong choices add the `PunishNoGoFA` timeout.
 
 ## Reward Output
 

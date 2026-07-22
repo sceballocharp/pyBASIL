@@ -163,13 +163,14 @@ For layout-only edits, keep these command bindings unchanged.
 
 - `Sound delay s` visible for non-lever, non-DMTS tasks.
 - `Delay s` visible for DMTS.
-- `Min licks` hidden for lever.
-- `Lick thresh` visible for non-lever lick trigger.
-- `Resp. hold %` visible for non-lever non-lick trigger.
+- `Min licks` hidden for lever and tAC.
+- `Lick thresh` visible for non-lever, non-tAC lick trigger.
+- `Resp. hold %` visible for non-lever, non-tAC non-lick trigger.
 - Lever hold/start debounce/release fields visible for lever.
 - `Require release` checkbox visible for lever.
 - `Random DMTS sounds` checkbox visible for DMTS.
 - Sample/test/fork grace/sound IDs visible for DMTS.
+- tAC left/right channel, threshold, and choice-lick fields visible for `TaskType=tAC`.
 
 When adding a task-specific control, add it to this visibility function.
 

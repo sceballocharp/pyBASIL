@@ -70,12 +70,12 @@ The current code treats:
 
 - `ai6` as the primary behavior signal for IRFork and Lever tasks.
 - `ai0` as the primary behavior signal when `TriggerTypeDropDown=Lick`.
+- `ai0` and `ai1` as the default left/right lick channels for tAC.
 - `ai5` as `SoundCopy` when available.
-- Additional channels, such as `ai1`, as acquired compatibility signals that are not central to current behavior scoring.
 
 `handle_data()` uses `get_behavior_signal_channel_name()` and `get_behavior_signal_column()` to select the active behavior signal from the channel list. If the selected channel is missing, the code logs a warning and falls back to the first acquired channel.
 
-Because lick mode uses `ai0`, the `Channels` field should include `ai0` whenever lick-triggered behavior is run.
+Because lick mode uses `ai0`, the `Channels` field should include `ai0` whenever lick-triggered behavior is run. Because tAC uses independent left/right lick streams, the field should include both `TACLeftChannel` and `TACRightChannel`, defaulting to `ai0` and `ai1`.
 
 If adding a new channel-dependent feature, keep `normalize_read()`, `handle_data()`, binary writing, live plotting, and NWB export aligned.
 

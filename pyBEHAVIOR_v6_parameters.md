@@ -2,13 +2,14 @@
 
 This document describes the `parameters.dat` fields used by the current protocol workflow.
 
-`protocol_generator.py` can generate three protocol families:
+`protocol_generator.py` can generate four protocol families:
 
 - `ClassicGoNoGo`
 - `Lever`
 - `DMTS`
+- `tAC`
 
-`pyBEHAVIOR_v6.py` currently imports and runs Classic Go/No-Go, Lever, and a DMTS sample-delay-test structure. DMTS can generate match and non-match trial types, with random sample/test sounds from a sound ID list such as `1:16`.
+`pyBEHAVIOR_v6.py` currently imports and runs Classic Go/No-Go, Lever, DMTS, and tAC. DMTS can generate match and non-match trial types, with random sample/test sounds from a sound ID list such as `1:16`. tAC is a two-alternative choice task with one sound followed by left/right lick choice.
 
 ## Common Parameters
 
@@ -26,7 +27,7 @@ These are shared by every protocol tab.
 | `TriggerTypeDropDown` | Trigger | Response signal source: `IRFork`, `Lick`, or `None`. |
 | `OuputformatDropDown` | Output format | Output format selector. Note the historical misspelling is preserved for compatibility. |
 
-The GUI `Channels` field should include `ai6,ai5,ai1,ai0` for the current rig layout. Runtime behavior signal selection is trigger-dependent: IRFork and Lever use `ai6`; Lick uses `ai0`; SoundCopy uses `ai5`. The selected behavior signal is written to `BehaviorSignal.bin` and recorded as `BehaviorSignalChannel` in session metadata.
+The GUI `Channels` field should include `ai6,ai5,ai1,ai0` for the current rig layout. Runtime behavior signal selection is trigger-dependent: IRFork and Lever use `ai6`; Lick uses `ai0`; tAC defaults to left `ai0` and right `ai1`; SoundCopy uses `ai5`. The selected behavior signal is written to `BehaviorSignal.bin` and recorded as `BehaviorSignalChannel` in session metadata.
 
 ## Classic Go/No-Go
 
@@ -175,6 +176,38 @@ DMTS trial starts use the same clean-reset rule as Classic Go/No-Go: after the t
 | `RewardProb` | Reward prob | Probability that a correct DMTS response is rewarded, from `0` to `1`. |
 | `HITThreshold_percent` | Threshold of RW for HIT % | Percentage of the response window required for HIT classification. |
 
+## tAC
+
+Saved with:
+
+```text
+TaskType=tAC
+```
+
+tAC means two-alternative choice. Trials start automatically when the ITI has elapsed, like lick-triggered Classic Go/No-Go. There is no IRFork/fork-entry requirement for this task. The closed-loop sequence defines which sound is presented: the first sequence value is the left-correct sound and the second sequence value is the right-correct sound.
+
+| Parameter | GUI label | Meaning |
+| --- | --- | --- |
+| `GoSoundId` | Left sound ID | Sound ID for left-correct trials. |
+| `NoGoSoundId` | Right sound ID | Sound ID for right-correct trials. |
+| `GoWeight` | Left weight | Relative probability of left-correct trials. |
+| `NoGoWeight` | Right weight | Relative probability of right-correct trials. |
+| `TACLeftChannel` | Left chan | AI channel used for left licks. Default `ai0`. |
+| `TACRightChannel` | Right chan | AI channel used for right licks. Default `ai1`. |
+| `TACLeftThreshold` | Left thresh | Voltage threshold for left lick crossings. |
+| `TACRightThreshold` | Right thresh | Voltage threshold for right lick crossings. |
+| `TACMinlickcount` | Choice licks | Number of crossings required for a side choice. |
+
+tAC outcomes:
+
+| Event | Outcome |
+| --- | --- |
+| Correct side reaches `TACMinlickcount` first | HIT |
+| Wrong side reaches `TACMinlickcount` first | FA |
+| No side reaches the criterion before response-window end | MISS |
+
+Correct choices use `RewardGo` and `RewardDelay_s`. Wrong choices use `PunishNoGoFA` as the timeout.
+
 ## Import Compatibility
 
 `pyBEHAVIOR_v6.py` still accepts several legacy aliases:
@@ -199,3 +232,4 @@ Trial-specific fields such as `trial`, `timestamp`, `sound_id`, `trigger_time_s`
 | Classic Go/No-Go | Yes | Yes | Implemented. |
 | Lever | Yes | Yes | Implemented. |
 | DMTS | Yes | Yes | Initial sample-delay-test structure implemented with same-ID matching and optional randomized same-ID sound lists. |
+| tAC | Yes | Yes | Implemented as automatic-start left/right lick choice with no fork/IR requirement. |

@@ -116,6 +116,9 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_high_start_s = None
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
+        self.active_left_lick_count = 0
+        self.active_right_lick_count = 0
+        self.active_choice_side = ""
         self.active_reward_decided = False
         self.active_reward_sent = False
         self.active_pending_reward_due_s = None
@@ -342,6 +345,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.punish_no_go_fa = tk.StringVar(value="")
         self.min_lick_count = tk.StringVar(value="")
         self.lick_threshold = tk.StringVar(value="")
+        self.tac_left_channel = tk.StringVar(value="ai0")
+        self.tac_right_channel = tk.StringVar(value="ai1")
+        self.tac_left_threshold = tk.StringVar(value="1")
+        self.tac_right_threshold = tk.StringVar(value="1")
+        self.tac_min_lick_count = tk.StringVar(value="1")
         self.lever_hold_time_s = tk.StringVar(value="1")
         self.lever_start_debounce_s = tk.StringVar(value="0.1")
         self.lever_release_debounce_s = tk.StringVar(value="0.05")
@@ -377,12 +385,26 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.test_sound_widgets = self._entry(trial, 2, "Test ID", self.test_sound_id, width=6, row=9)
         self.dmts_fork_grace_widgets = self._entry(trial, 0, "Fork grace s", self.dmts_fork_grace_s, width=6, row=10)
         self.dmts_sound_ids_widgets = self._entry(trial, 2, "Sound IDs", self.dmts_sound_ids, width=16, row=10)
-        for var in (self.sound_delay_s, self.delay_s, self.sound_duration_s, self.response_window_s, self.reward_delay_s):
+        self.tac_left_channel_widgets = self._entry(trial, 0, "Left chan", self.tac_left_channel, width=6, row=11)
+        self.tac_right_channel_widgets = self._entry(trial, 2, "Right chan", self.tac_right_channel, width=6, row=11)
+        self.tac_left_threshold_widgets = self._entry(trial, 0, "Left thresh", self.tac_left_threshold, width=6, row=12)
+        self.tac_right_threshold_widgets = self._entry(trial, 2, "Right thresh", self.tac_right_threshold, width=6, row=12)
+        self.tac_min_lick_count_widgets = self._entry(trial, 0, "Choice licks", self.tac_min_lick_count, width=6, row=13)
+        for var in (self.sound_delay_s, self.delay_s, self.sound_duration_s, self.response_window_s, self.reward_delay_s, self.pulse_ms):
             var.trace_add("write", lambda *_: self.update_trial_duration())
         self.task_type.trace_add("write", lambda *_: (self.update_task_parameter_visibility(), self.update_trial_duration(), self.update_behavior_readouts()))
         self.trigger_type.trace_add("write", lambda *_: (self.update_task_parameter_visibility(), self.update_behavior_readouts()))
         self.channels.trace_add("write", lambda *_: self.update_behavior_readouts())
-        for var in (self.min_lick_count, self.lick_threshold, self.hit_threshold_s, self.lever_hold_time_s, self.lever_require_release):
+        for var in (
+            self.min_lick_count,
+            self.lick_threshold,
+            self.hit_threshold_s,
+            self.lever_hold_time_s,
+            self.lever_require_release,
+            self.tac_left_channel,
+            self.tac_right_channel,
+            self.tac_min_lick_count,
+        ):
             var.trace_add("write", lambda *_: self.update_behavior_readouts())
         self.update_trial_duration()
         self.update_task_parameter_visibility()
@@ -414,12 +436,13 @@ class BehaviorAcquisitionApp(tk.Tk):
             return
         is_lever = self.is_lever_task()
         is_dmts = self.is_dmts_task()
+        is_tac = self.is_tac_task()
         is_lick = self.is_lick_trigger()
         self.set_widget_pair_visible(self.sound_delay_widgets, not is_lever and not is_dmts, row=5, col=0)
         self.set_widget_pair_visible(self.delay_widgets, is_dmts, row=5, col=0)
-        self.set_widget_pair_visible(self.min_lick_count_widgets, not is_lever, row=6, col=0)
-        self.set_widget_pair_visible(self.lick_threshold_widgets, not is_lever and is_lick, row=6, col=2)
-        self.set_widget_pair_visible(self.hit_threshold_widgets, not is_lever and not is_lick, row=6, col=2)
+        self.set_widget_pair_visible(self.min_lick_count_widgets, not is_lever and not is_tac, row=6, col=0)
+        self.set_widget_pair_visible(self.lick_threshold_widgets, not is_lever and not is_tac and is_lick, row=6, col=2)
+        self.set_widget_pair_visible(self.hit_threshold_widgets, not is_lever and not is_tac and not is_lick, row=6, col=2)
         self.set_widget_pair_visible(self.lever_hold_widgets, is_lever, row=7, col=0)
         self.set_widget_pair_visible(self.lever_start_debounce_widgets, is_lever, row=7, col=2)
         self.set_widget_pair_visible(self.lever_release_window_widgets, is_lever, row=8, col=0)
@@ -436,6 +459,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.set_widget_pair_visible(self.test_sound_widgets, is_dmts, row=9, col=2)
         self.set_widget_pair_visible(self.dmts_fork_grace_widgets, is_dmts, row=10, col=0)
         self.set_widget_pair_visible(self.dmts_sound_ids_widgets, is_dmts, row=10, col=2)
+        self.set_widget_pair_visible(self.tac_left_channel_widgets, is_tac, row=11, col=0)
+        self.set_widget_pair_visible(self.tac_right_channel_widgets, is_tac, row=11, col=2)
+        self.set_widget_pair_visible(self.tac_left_threshold_widgets, is_tac, row=12, col=0)
+        self.set_widget_pair_visible(self.tac_right_threshold_widgets, is_tac, row=12, col=2)
+        self.set_widget_pair_visible(self.tac_min_lick_count_widgets, is_tac, row=13, col=0)
 
     def set_widget_pair_visible(self, widgets, visible, row, col):
         label_widget, entry_widget = widgets
@@ -450,8 +478,21 @@ class BehaviorAcquisitionApp(tk.Tk):
         if not hasattr(self, "behavior_channel_var"):
             return
         channel = self.get_behavior_signal_channel_name()
-        self.behavior_channel_var.set(f"Behavior signal: {channel} (IRFork/Lever ai6, Lick ai0; SoundCopy ai5)")
-        if self.is_lever_task():
+        if self.is_tac_task():
+            self.behavior_channel_var.set(
+                f"Behavior signal: left {self.get_tac_left_channel_name()}, right {self.get_tac_right_channel_name()}; SoundCopy ai5"
+            )
+        else:
+            self.behavior_channel_var.set(f"Behavior signal: {channel} (IRFork/Lever ai6, Lick ai0; SoundCopy ai5)")
+        if self.is_tac_task():
+            values = self._parse_number_list(self.sequence_values.get(), default=[1, 10], cast=int)
+            left_sound = values[0] if values else 1
+            right_sound = values[1] if len(values) > 1 else left_sound
+            rule = (
+                f"tAC: auto-start after ITI; sound {left_sound}=left, "
+                f"{right_sound}=right; first side to {self.get_tac_min_lick_count()} licks chooses"
+            )
+        elif self.is_lever_task():
             release = "release required" if self.lever_require_release.get() else "reward at hold"
             rule = f"Lever: start on ai6 crossing; hold {self.get_lever_hold_time_s():g} s, {release}"
         elif self.is_dmts_task():
@@ -476,12 +517,13 @@ class BehaviorAcquisitionApp(tk.Tk):
                 + self.parse_float(self.reward_delay_s, 0)
             )
         else:
-            total = (
-                self.parse_float(self.sound_delay_s, 0)
-                + sound_duration_s
-                + self.parse_float(self.response_window_s, 0)
+            sound_end_s = self.parse_float(self.sound_delay_s, 0) + sound_duration_s
+            reward_end_s = (
+                self.parse_float(self.response_window_s, 0)
                 + self.parse_float(self.reward_delay_s, 0)
+                + self.parse_float(self.pulse_ms, 0) / 1000.0
             )
+            total = max(sound_end_s, reward_end_s)
         self.trial_duration_s.set(f"{total:g}")
 
     def log(self, message):
@@ -716,7 +758,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "frec": self.rate_hz,
             "bin": self.callback_s,
             "Channels": self.channels,
-            "TriggerTypeDropDown": self.trigger_type,
+        "TriggerTypeDropDown": self.trigger_type,
             "OuputformatDropDown": self.output_format,
             "OutputformatDropDown": self.output_format,
             "TaskType": self.task_type,
@@ -756,6 +798,11 @@ class BehaviorAcquisitionApp(tk.Tk):
             "DMTSRandomMatchTrials": self.dmts_random_match_trials,
             "DMTSSoundIds": self.dmts_sound_ids,
             "DMTSForkGrace_s": self.dmts_fork_grace_s,
+            "TACLeftChannel": self.tac_left_channel,
+            "TACRightChannel": self.tac_right_channel,
+            "TACLeftThreshold": self.tac_left_threshold,
+            "TACRightThreshold": self.tac_right_threshold,
+            "TACMinlickcount": self.tac_min_lick_count,
         }
         applied = 0
         for key, var in mapping.items():
@@ -788,6 +835,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         if self.is_dmts_task():
             self.sound_id.set(self.sample_sound_id.get())
             self.sequence_values.set("1 2")
+            self.generate_sequence(log=False)
+            self.update_trial_duration()
+        if self.is_tac_task():
+            self.trigger_type.set("Lick")
             self.generate_sequence(log=False)
             self.update_trial_duration()
         return applied
@@ -825,6 +876,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         return None
 
     def get_behavior_signal_channel_name(self):
+        if self.is_tac_task():
+            return self.get_tac_left_channel_name()
         if self.is_lick_trigger() and not self.is_lever_task():
             return "ai0"
         return "ai6"
@@ -916,9 +969,15 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_trial_index = None
         self.active_trial_start_s = None
         self.active_trial_end_s = None
+        self.active_response_end_s = None
         self.active_high_start_s = None
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
+        self.active_left_lick_count = 0
+        self.active_right_lick_count = 0
+        self.active_choice_side = ""
+        self.left_lick_was_high = False
+        self.right_lick_was_high = False
         self.active_reward_decided = False
         self.active_reward_sent = False
         self.active_pending_reward_due_s = None
@@ -1076,7 +1135,7 @@ class BehaviorAcquisitionApp(tk.Tk):
                 self.soundcopy_buffer.pop(0)
         self.current_behavior_baseline = statistics.median(self.data_buffer) if self.subtract_baseline.get() and self.data_buffer else 0.0
         corrected_behavior_values = [value - self.current_behavior_baseline for value in raw_behavior_values]
-        self.check_trigger(times, corrected_behavior_values)
+        self.check_trigger(times, corrected_behavior_values, rows)
         if self.behavior_signal_file is not None:
             self.behavior_signal_file.write(struct.pack(f"{len(rows)}d", *raw_behavior_values))
         if self.soundcopy_file is not None and soundcopy_col is not None:
@@ -1111,15 +1170,26 @@ class BehaviorAcquisitionApp(tk.Tk):
             values.append(1.0 if in_trial else 0.0)
         return values
 
-    def check_trigger(self, times, ir_values):
+    def get_row_channel_value(self, row, channel_name, fallback=0.0):
+        channel_index = self.get_channel_index(channel_name)
+        if channel_index is not None and channel_index < len(row):
+            return row[channel_index]
+        return fallback
+
+    def check_trigger(self, times, ir_values, rows=None):
         threshold = self.get_current_trigger_threshold()
 
-        for sample_time_s, value in zip(times, ir_values):
+        for sample_index, (sample_time_s, value) in enumerate(zip(times, ir_values)):
             if self.is_lever_task():
                 self.check_lever_trigger_sample(sample_time_s, value, threshold)
                 continue
 
             self.process_pending_go_reward(sample_time_s)
+
+            if self.is_tac_task():
+                row = rows[sample_index] if rows is not None and sample_index < len(rows) else []
+                self.check_tac_sample(sample_time_s, row)
+                continue
 
             if self.active_trial_index is not None and self.active_trial_end_s is not None and sample_time_s >= self.active_trial_end_s:
                 if self.is_dmts_task():
@@ -1285,6 +1355,11 @@ class BehaviorAcquisitionApp(tk.Tk):
             "PunishNoGoFA": self.punish_no_go_fa.get(),
             "Minlickcount": self.min_lick_count.get(),
             "Lickthreshold": self.lick_threshold.get(),
+            "TACLeftChannel": self.get_tac_left_channel_name(),
+            "TACRightChannel": self.get_tac_right_channel_name(),
+            "TACLeftThreshold": self.tac_left_threshold.get(),
+            "TACRightThreshold": self.tac_right_threshold.get(),
+            "TACMinlickcount": self.tac_min_lick_count.get(),
             "LeverThreshold": self.threshold_v.get(),
             "LeverHoldTime_s": self.lever_hold_time_s.get(),
             "LeverStartDebounce_s": self.lever_start_debounce_s.get(),
@@ -1349,6 +1424,11 @@ class BehaviorAcquisitionApp(tk.Tk):
             "PunishNoGoFA",
             "Minlickcount",
             "Lickthreshold",
+            "TACLeftChannel",
+            "TACRightChannel",
+            "TACLeftThreshold",
+            "TACRightThreshold",
+            "TACMinlickcount",
             "LeverThreshold",
             "LeverHoldTime_s",
             "LeverStartDebounce_s",
@@ -1388,6 +1468,10 @@ class BehaviorAcquisitionApp(tk.Tk):
             "sample_sound_id": sound_id if self.is_dmts_task() else params["SampleSoundId"],
             "test_sound_id": trial_test_sound_id if self.is_dmts_task() and trial_test_sound_id is not None else params["TestSoundId"],
             "lick_count": "",
+            "left_lick_count": "",
+            "right_lick_count": "",
+            "correct_side": self.get_tac_side_for_sound(sound_id) if self.is_tac_task() else "",
+            "choice_side": "",
         }
         parameter_row = {
             "trial": self.trial_index,
@@ -1429,6 +1513,11 @@ class BehaviorAcquisitionApp(tk.Tk):
             "punish_no_go_fa": params["PunishNoGoFA"],
             "min_lick_count": params["Minlickcount"],
             "lick_threshold": params["Lickthreshold"],
+            "tac_left_channel": params["TACLeftChannel"],
+            "tac_right_channel": params["TACRightChannel"],
+            "tac_left_threshold": params["TACLeftThreshold"],
+            "tac_right_threshold": params["TACRightThreshold"],
+            "tac_min_lick_count": params["TACMinlickcount"],
             "play_sound": params["PlaySound"],
             "trigger_output": params["TriggerOutput"],
             "Block": "",
@@ -1447,6 +1536,48 @@ class BehaviorAcquisitionApp(tk.Tk):
         if rand_max_s < rand_min_s:
             rand_min_s, rand_max_s = rand_max_s, rand_min_s
         return base_iti_s + random.uniform(rand_min_s, rand_max_s)
+
+    def start_tac_trial(self, trial_start_s, threshold, start_reason):
+        max_trials = max(0, self.parse_int(self.max_trials, 0))
+        if max_trials and self.trial_index >= max_trials:
+            self.plot_queue.put(("log", f"tAC trial start ignored: max trials {max_trials} reached."))
+            return False
+        sound_id = self.consume_next_sound_id() if self.play_sound_on_crossing.get() else self.parse_int(self.sound_id, 1)
+        iti = self.draw_trial_iti_s()
+        side = self.get_tac_side_for_sound(sound_id)
+        trial_type_id = 1 if side == "left" else 2
+        trial_type = f"tAC-{side}"
+        self.create_trial(sound_id, trial_start_s, threshold, iti, trial_type_id=trial_type_id, trial_type=trial_type)
+        self.start_active_tac_trial(trial_start_s, iti)
+        if self.play_sound_on_crossing.get():
+            self.play_loaded_sound(sound_id=sound_id, from_worker=True, start_s=trial_start_s)
+        self.last_trigger_time = trial_start_s
+        self.plot_queue.put(("log", f"{start_reason}. Trial {self.trial_index} is {trial_type}, sound id {sound_id}."))
+        return True
+
+    def start_active_tac_trial(self, trigger_time_s, iti_s):
+        response_window_s = max(0.0, self.parse_float(self.response_window_s, 2))
+        self.active_trial_index = self.trial_index
+        self.active_trial_start_s = trigger_time_s
+        self.active_response_end_s = trigger_time_s + response_window_s
+        self.active_trial_end_s = self.active_response_end_s
+        self.active_high_start_s = None
+        self.active_crossing_total_s = 0.0
+        self.active_lick_count = 0
+        self.active_left_lick_count = 0
+        self.active_right_lick_count = 0
+        self.active_choice_side = ""
+        self.active_reward_decided = False
+        self.active_reward_sent = False
+        self.active_pending_reward_due_s = None
+        self.active_pending_reward_row = None
+        self.active_pending_reward_measure = ""
+        self.active_pending_reward_probability = 0.0
+        self.active_pending_reward_draw = 0.0
+        self.active_trial_base_iti_s = iti_s
+        self.active_trial_extra_timeout_s = 0.0
+        self.trigger_reset_seen_for_new_trial = False
+        self.start_trial_state_interval(trigger_time_s)
 
     def start_classic_trial(self, trial_start_s, threshold, start_reason):
         max_trials = max(0, self.parse_int(self.max_trials, 0))
@@ -1496,8 +1627,16 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_high_start_s = None
         self.active_crossing_total_s = 0.0
         self.active_lick_count = 0
+        self.active_left_lick_count = 0
+        self.active_right_lick_count = 0
+        self.active_choice_side = ""
         self.active_reward_decided = False
         self.active_reward_sent = False
+        self.active_pending_reward_due_s = None
+        self.active_pending_reward_row = None
+        self.active_pending_reward_measure = ""
+        self.active_pending_reward_probability = 0.0
+        self.active_pending_reward_draw = 0.0
         self.active_trial_base_iti_s = iti_s
         self.active_trial_extra_timeout_s = 0.0
         self.active_dmts_sample_sound_id = max(1, int(sample_sound_id or self.parse_int(self.sample_sound_id, 1)))
@@ -1520,16 +1659,161 @@ class BehaviorAcquisitionApp(tk.Tk):
     def is_dmts_task(self):
         return self.task_type.get().strip().lower() == "dmts"
 
+    def is_tac_task(self):
+        value = self.task_type.get().strip().lower()
+        return value in {"tac", "2ac", "twoalternatechoice", "twoalternativechoice"}
+
     def is_lick_trigger(self):
         return self.trigger_type.get().strip().lower() == "lick"
 
     def get_current_trigger_threshold(self):
+        if self.is_tac_task():
+            return self.get_tac_left_threshold()
         if self.is_lick_trigger():
             return self.parse_float(self.lick_threshold, self.parse_float(self.threshold_v, 1))
         return self.parse_float(self.threshold_v, 1)
 
     def get_min_lick_count(self):
         return max(1, self.parse_int(self.min_lick_count, 1))
+
+    def get_tac_min_lick_count(self):
+        return max(1, self.parse_int(self.tac_min_lick_count, 1))
+
+    def get_tac_left_channel_name(self):
+        return self.tac_left_channel.get().strip() or "ai0"
+
+    def get_tac_right_channel_name(self):
+        return self.tac_right_channel.get().strip() or "ai1"
+
+    def get_tac_left_threshold(self):
+        return self.parse_float(self.tac_left_threshold, self.parse_float(self.lick_threshold, 1))
+
+    def get_tac_right_threshold(self):
+        return self.parse_float(self.tac_right_threshold, self.parse_float(self.lick_threshold, 1))
+
+    def get_tac_side_for_sound(self, sound_id):
+        values = self._parse_number_list(self.sequence_values.get(), default=[1, 10], cast=int)
+        if values and int(sound_id) == int(values[0]):
+            return "left"
+        if len(values) > 1 and int(sound_id) == int(values[1]):
+            return "right"
+        return "left"
+
+    def check_tac_sample(self, sample_time_s, row_values):
+        left_value = self.get_row_channel_value(row_values, self.get_tac_left_channel_name(), 0.0)
+        right_value = self.get_row_channel_value(row_values, self.get_tac_right_channel_name(), 0.0)
+        left_high = left_value >= self.get_tac_left_threshold()
+        right_high = right_value >= self.get_tac_right_threshold()
+        left_crossed_up = left_high and not self.left_lick_was_high
+        right_crossed_up = right_high and not self.right_lick_was_high
+        self.left_lick_was_high = left_high
+        self.right_lick_was_high = right_high
+
+        if self.active_trial_index is not None and self.active_trial_end_s is not None and sample_time_s >= self.active_trial_end_s:
+            self.finish_active_tac_trial(self.active_trial_end_s)
+
+        if self.active_trial_index is not None:
+            if self.is_within_active_response_window(sample_time_s):
+                if left_crossed_up:
+                    self.add_active_tac_lick("left")
+                if right_crossed_up:
+                    self.add_active_tac_lick("right")
+                self.evaluate_active_tac_trial(sample_time_s)
+            return
+
+        if sample_time_s < self.next_trial_allowed_time_s:
+            return
+
+        if self.start_tac_trial(sample_time_s, self.get_tac_left_threshold(), "ITI elapsed"):
+            if left_crossed_up:
+                self.add_active_tac_lick("left")
+            if right_crossed_up:
+                self.add_active_tac_lick("right")
+            self.evaluate_active_tac_trial(sample_time_s)
+
+    def add_active_tac_lick(self, side):
+        if side == "left":
+            self.active_left_lick_count += 1
+        elif side == "right":
+            self.active_right_lick_count += 1
+        self.active_lick_count = self.active_left_lick_count + self.active_right_lick_count
+        row = self.get_active_trial_row()
+        if row is not None:
+            row["lick_count"] = self.active_lick_count
+            row["left_lick_count"] = self.active_left_lick_count
+            row["right_lick_count"] = self.active_right_lick_count
+
+    def get_tac_correct_side(self, row):
+        trial_type = str(row.get("TrialType", "")).lower()
+        if "right" in trial_type:
+            return "right"
+        return "left"
+
+    def evaluate_active_tac_trial(self, sample_time_s):
+        row = self.get_active_trial_row()
+        if row is None or row["ResultType"]:
+            return
+        min_count = self.get_tac_min_lick_count()
+        chosen_side = ""
+        if self.active_left_lick_count >= min_count:
+            chosen_side = "left"
+        if self.active_right_lick_count >= min_count and not chosen_side:
+            chosen_side = "right"
+        if not chosen_side:
+            return
+        correct_side = self.get_tac_correct_side(row)
+        self.active_choice_side = chosen_side
+        row["choice_side"] = chosen_side
+        row["correct_side"] = correct_side
+        row["lick_count"] = self.active_lick_count
+        row["left_lick_count"] = self.active_left_lick_count
+        row["right_lick_count"] = self.active_right_lick_count
+        correct = chosen_side == correct_side
+        row["HIT"] = int(correct)
+        row["MISS"] = 0
+        row["CR"] = 0
+        row["FA"] = int(not correct)
+        row["ResultType"] = "HIT" if correct else "FA"
+        if correct:
+            self.maybe_send_go_reward(row, float(self.active_lick_count), start_s=sample_time_s)
+        else:
+            self.active_trial_extra_timeout_s = self.get_punish_no_go_fa_s()
+        self.write_trial_log()
+        self.plot_queue.put(("results", None))
+        self.plot_queue.put((
+            "log",
+            f"tAC trial {row['trial']} chose {chosen_side}; correct side was {correct_side}. Result={row['ResultType']}.",
+        ))
+
+    def finish_active_tac_trial(self, trial_end_s):
+        row = self.get_active_trial_row()
+        if row is None:
+            self.clear_active_trial()
+            return
+        if not row["ResultType"]:
+            correct_side = self.get_tac_correct_side(row)
+            row["choice_side"] = self.active_choice_side
+            row["correct_side"] = correct_side
+            row["lick_count"] = self.active_lick_count
+            row["left_lick_count"] = self.active_left_lick_count
+            row["right_lick_count"] = self.active_right_lick_count
+            row["HIT"] = 0
+            row["MISS"] = 1
+            row["CR"] = 0
+            row["FA"] = 0
+            row["ResultType"] = "MISS"
+        self.apply_trial_timeout(row, trial_end_s)
+        self.set_trial_end_time(row, trial_end_s)
+        self.write_trial_log()
+        self.store_trial_crossing_duration(row)
+        self.plot_queue.put(("results", None))
+        self.plot_queue.put((
+            "log",
+            f"tAC trial {row['trial']} left/right licks {self.active_left_lick_count}/{self.active_right_lick_count}. "
+            f"Result={row['ResultType']}.",
+        ))
+        self.end_trial_state_interval(trial_end_s)
+        self.clear_active_trial()
 
     def check_lever_trigger_sample(self, sample_time_s, value, threshold):
         is_high = value >= threshold
@@ -2108,7 +2392,12 @@ class BehaviorAcquisitionApp(tk.Tk):
 
     def apply_trial_timeout(self, row, trial_end_s):
         trial_type = row["TrialType"]
-        if (trial_type.endswith("noGo") or trial_type.endswith("DMTS-nonmatch")) and row["ResultType"] == "FA":
+        if (
+            trial_type.endswith("noGo")
+            or trial_type.endswith("DMTS-nonmatch")
+            or trial_type.endswith("tAC-left")
+            or trial_type.endswith("tAC-right")
+        ) and row["ResultType"] == "FA":
             self.active_trial_extra_timeout_s = self.get_punish_no_go_fa_s()
         else:
             self.active_trial_extra_timeout_s = 0.0
@@ -2116,7 +2405,12 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.last_trial_end_time_s = trial_end_s
         self.next_trial_allowed_time_s = trial_end_s + total_timeout_s
         if self.active_trial_extra_timeout_s:
-            timeout_label = "DMTS non-match FA" if trial_type.endswith("DMTS-nonmatch") else "noGo FA"
+            if trial_type.endswith("DMTS-nonmatch"):
+                timeout_label = "DMTS non-match FA"
+            elif trial_type.endswith("tAC-left") or trial_type.endswith("tAC-right"):
+                timeout_label = "tAC wrong choice"
+            else:
+                timeout_label = "noGo FA"
             self.plot_queue.put((
                 "log",
                 f"{timeout_label} timeout added: {self.active_trial_extra_timeout_s:g} s. "
@@ -2144,7 +2438,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_reward_decided = True
         reward_probability = min(1.0, max(0.0, self.parse_float(self.reward_go, 1.0)))
         draw = random.random()
-        measure = f"{int(total_s)} licks" if self.is_lick_trigger() else f"{total_s:.3f} s total IR crossing"
+        if self.is_lick_trigger() or self.is_tac_task():
+            measure = f"{int(total_s)} licks"
+        else:
+            measure = f"{total_s:.3f} s total IR crossing"
         if draw <= reward_probability and self.trigger_output_on_crossing.get():
             delay_s = self.get_classic_go_reward_delay_s(row)
             reward_start_s = (start_s or 0.0) + delay_s
@@ -2166,7 +2463,10 @@ class BehaviorAcquisitionApp(tk.Tk):
             ))
 
     def get_classic_go_reward_delay_s(self, row):
-        if row is None or row.get("TrialType") != "GO":
+        if row is None:
+            return 0.0
+        trial_type = str(row.get("TrialType", ""))
+        if trial_type != "GO" and not trial_type.endswith("tAC-left") and not trial_type.endswith("tAC-right"):
             return 0.0
         return max(0.0, self.parse_float(self.reward_delay_s, 0.0))
 
@@ -2274,6 +2574,9 @@ class BehaviorAcquisitionApp(tk.Tk):
             if test_sound_id is not None and int(sound_id) != int(test_sound_id):
                 return 2, "DMTS-nonmatch"
             return 1, "DMTS-match"
+        if self.is_tac_task():
+            side = self.get_tac_side_for_sound(sound_id)
+            return (1, "tAC-left") if side == "left" else (2, "tAC-right")
         values = self._parse_number_list(self.sequence_values.get(), default=[sound_id], cast=int)
         if not values or sound_id == values[0]:
             return 1, "GO"
@@ -2824,6 +3127,11 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("PunishNoGoFA", params["PunishNoGoFA"]),
             ("Minlickcount", params["Minlickcount"]),
             ("Lickthreshold", params["Lickthreshold"]),
+            ("TACLeftChannel", params["TACLeftChannel"]),
+            ("TACRightChannel", params["TACRightChannel"]),
+            ("TACLeftThreshold", params["TACLeftThreshold"]),
+            ("TACRightThreshold", params["TACRightThreshold"]),
+            ("TACMinlickcount", params["TACMinlickcount"]),
             ("NWBExportedTrials", exported_trial_count if exported_trial_count is not None else len(self.trial_rows)),
             ("NWBOriginalTrialRows", len(self.trial_rows)),
             ("NWBTrialAnchor", "sound_epoch_start_or_trigger_time"),
@@ -3174,15 +3482,25 @@ class BehaviorAcquisitionApp(tk.Tk):
         nogo_total = counts["CR"] + counts["FA"]
         hit_rate = counts["HIT"] / go_total if go_total else 0.0
         cr_rate = counts["CR"] / nogo_total if nogo_total else 0.0
-        title = (
-            f"Trials {len(completed)}   HIT {counts['HIT']}   MISS {counts['MISS']}   "
-            f"CR {counts['CR']}   FA {counts['FA']}   "
-            f"GO hit {hit_rate:.0%}   noGo CR {cr_rate:.0%}"
-        )
-        canvas.create_text(18, 18, text=title, anchor="w", fill="#222222", font=("Segoe UI", 10, "bold"))
-
-        left = 54
-        right = width - 24
+        if self.is_tac_task():
+            choice_total = counts["HIT"] + counts["MISS"] + counts["FA"]
+            choice_rate = counts["HIT"] / choice_total if choice_total else 0.0
+            title = (
+                f"Trials {len(completed)}   HIT {counts['HIT']}   MISS {counts['MISS']}   "
+                f"FA {counts['FA']}   Choice accuracy {choice_rate:.0%}"
+            )
+            canvas.create_text(18, 18, text=title, anchor="w", fill="#222222", font=("Segoe UI", 10, "bold"))
+            left = 54
+            right = width - 24
+        else:
+            title = (
+                f"Trials {len(completed)}   HIT {counts['HIT']}   MISS {counts['MISS']}   "
+                f"CR {counts['CR']}   FA {counts['FA']}   "
+                f"GO hit {hit_rate:.0%}   noGo CR {cr_rate:.0%}"
+            )
+            canvas.create_text(18, 18, text=title, anchor="w", fill="#222222", font=("Segoe UI", 10, "bold"))
+            left = 54
+            right = width - 24
         if width >= 900:
             crossing_width = min(250, max(210, width * 0.22))
             crossing_left = width - crossing_width - 24
@@ -3336,7 +3654,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             conditions[key]["total"] += 1
             if trial_type.endswith("noGo"):
                 conditions[key]["correct"] += int(result == "CR")
-            elif trial_type.endswith("GO") or trial_type.endswith("Lever"):
+            elif trial_type.endswith("GO") or trial_type.endswith("Lever") or "tAC-" in trial_type:
                 conditions[key]["correct"] += int(result == "HIT")
             else:
                 conditions[key]["correct"] += int(result in ("HIT", "CR"))
@@ -3358,6 +3676,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "GO": "#2ca02c",
             "Lever": "#2ca02c",
             "noGo": "#1f77b4",
+            "tAC-left": "#2ca02c",
+            "tAC-right": "#9467bd",
         }
         for index, ((sound_id, trial_type), stats) in enumerate(ordered):
             y = plot_top + index * row_gap + row_gap / 2
