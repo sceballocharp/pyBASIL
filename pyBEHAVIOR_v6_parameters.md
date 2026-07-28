@@ -197,6 +197,8 @@ tAC means two-alternative choice. Trials start automatically when the ITI has el
 | `TACLeftThreshold` | Left thresh | Voltage threshold for left lick crossings. |
 | `TACRightThreshold` | Right thresh | Voltage threshold for right lick crossings. |
 | `TACMinlickcount` | Choice licks | Number of crossings required for a side choice. |
+| `TACLeftBinary` | saved metadata | Continuous left lick file, `LeftLick.bin`, written for tAC sessions. |
+| `TACRightBinary` | saved metadata | Continuous right lick file, `RightLick.bin`, written for tAC sessions. |
 
 tAC outcomes:
 

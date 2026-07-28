@@ -76,6 +76,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.plot_queue = queue.Queue()
         self.time_buffer = []
         self.data_buffer = []
+        self.tac_left_buffer = []
+        self.tac_right_buffer = []
         self.soundcopy_buffer = []
         self.full_soundcopy_buffer = []
         self.trigger_pulses = []
@@ -84,6 +86,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.full_trigger_pulses = []
         self.full_sound_outputs = []
         self.behavior_signal_file = None
+        self.left_lick_file = None
+        self.right_lick_file = None
         self.soundcopy_file = None
         self.trial_state_file = None
         self.exp_folder = ""
@@ -1046,6 +1050,8 @@ class BehaviorAcquisitionApp(tk.Tk):
     def clear_buffers(self):
         self.time_buffer.clear()
         self.data_buffer.clear()
+        self.tac_left_buffer.clear()
+        self.tac_right_buffer.clear()
         self.soundcopy_buffer.clear()
         self.full_soundcopy_buffer.clear()
         self.trigger_pulses.clear()
@@ -1119,10 +1125,14 @@ class BehaviorAcquisitionApp(tk.Tk):
             return
         behavior_col = self.get_behavior_signal_column(rows)
         raw_behavior_values = [row[behavior_col] for row in rows]
+        raw_tac_left_values = [self.get_row_channel_value(row, self.get_tac_left_channel_name(), 0.0) for row in rows]
+        raw_tac_right_values = [self.get_row_channel_value(row, self.get_tac_right_channel_name(), 0.0) for row in rows]
         soundcopy_col = self.get_soundcopy_column(rows)
         raw_soundcopy_values = [row[soundcopy_col] for row in rows] if soundcopy_col is not None else [0.0] * len(rows)
         self.time_buffer.extend(times)
         self.data_buffer.extend(raw_behavior_values)
+        self.tac_left_buffer.extend(raw_tac_left_values)
+        self.tac_right_buffer.extend(raw_tac_right_values)
         self.soundcopy_buffer.extend(raw_soundcopy_values)
         self.full_soundcopy_buffer.extend(raw_soundcopy_values)
 
@@ -1131,6 +1141,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         while self.time_buffer and self.time_buffer[0] < min_time:
             self.time_buffer.pop(0)
             self.data_buffer.pop(0)
+            if self.tac_left_buffer:
+                self.tac_left_buffer.pop(0)
+            if self.tac_right_buffer:
+                self.tac_right_buffer.pop(0)
             if self.soundcopy_buffer:
                 self.soundcopy_buffer.pop(0)
         self.current_behavior_baseline = statistics.median(self.data_buffer) if self.subtract_baseline.get() and self.data_buffer else 0.0
@@ -1138,12 +1152,27 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.check_trigger(times, corrected_behavior_values, rows)
         if self.behavior_signal_file is not None:
             self.behavior_signal_file.write(struct.pack(f"{len(rows)}d", *raw_behavior_values))
+        if self.left_lick_file is not None:
+            self.left_lick_file.write(struct.pack(f"{len(rows)}d", *raw_tac_left_values))
+        if self.right_lick_file is not None:
+            self.right_lick_file.write(struct.pack(f"{len(rows)}d", *raw_tac_right_values))
         if self.soundcopy_file is not None and soundcopy_col is not None:
             self.soundcopy_file.write(struct.pack(f"{len(rows)}d", *raw_soundcopy_values))
         if self.trial_state_file is not None:
             trial_state_values = self.get_trial_state_values(times)
             self.trial_state_file.write(struct.pack(f"{len(trial_state_values)}d", *trial_state_values))
-        self.plot_queue.put(("plot", (list(self.time_buffer), list(self.data_buffer))))
+        if self.is_tac_task():
+            plot_payload = (
+                list(self.time_buffer),
+                list(self.tac_left_buffer),
+                [
+                    (f"Left {self.get_tac_left_channel_name()}", list(self.tac_left_buffer), "#1f77b4"),
+                    (f"Right {self.get_tac_right_channel_name()}", list(self.tac_right_buffer), "#d62728"),
+                ],
+            )
+        else:
+            plot_payload = (list(self.time_buffer), list(self.data_buffer))
+        self.plot_queue.put(("plot", plot_payload))
 
     def get_soundcopy_column(self, rows):
         if not rows:
@@ -1292,15 +1321,29 @@ class BehaviorAcquisitionApp(tk.Tk):
         if not self.exp_folder:
             self.prepare_session_folder()
         self.behavior_signal_file = open(os.path.join(self.exp_folder, "BehaviorSignal.bin"), "wb")
+        if self.is_tac_task():
+            self.left_lick_file = open(os.path.join(self.exp_folder, "LeftLick.bin"), "wb")
+            self.right_lick_file = open(os.path.join(self.exp_folder, "RightLick.bin"), "wb")
         self.soundcopy_file = open(os.path.join(self.exp_folder, "SoundCopy.bin"), "wb")
         self.trial_state_file = open(os.path.join(self.exp_folder, "TrialState.bin"), "wb")
-        self.log(f"Writing BehaviorSignal.bin, SoundCopy.bin, and TrialState.bin: {self.exp_folder}")
+        if self.is_tac_task():
+            self.log(f"Writing BehaviorSignal.bin, LeftLick.bin, RightLick.bin, SoundCopy.bin, and TrialState.bin: {self.exp_folder}")
+        else:
+            self.log(f"Writing BehaviorSignal.bin, SoundCopy.bin, and TrialState.bin: {self.exp_folder}")
 
     def close_behavior_signal_file(self):
         if self.behavior_signal_file is not None:
             self.behavior_signal_file.close()
             self.behavior_signal_file = None
             self.log("Closed BehaviorSignal.bin.")
+        if self.left_lick_file is not None:
+            self.left_lick_file.close()
+            self.left_lick_file = None
+            self.log("Closed LeftLick.bin.")
+        if self.right_lick_file is not None:
+            self.right_lick_file.close()
+            self.right_lick_file = None
+            self.log("Closed RightLick.bin.")
         if self.soundcopy_file is not None:
             self.soundcopy_file.close()
             self.soundcopy_file = None
@@ -1360,6 +1403,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "TACLeftThreshold": self.tac_left_threshold.get(),
             "TACRightThreshold": self.tac_right_threshold.get(),
             "TACMinlickcount": self.tac_min_lick_count.get(),
+            "TACLeftBinary": "LeftLick.bin" if self.is_tac_task() else "",
+            "TACRightBinary": "RightLick.bin" if self.is_tac_task() else "",
             "LeverThreshold": self.threshold_v.get(),
             "LeverHoldTime_s": self.lever_hold_time_s.get(),
             "LeverStartDebounce_s": self.lever_start_debounce_s.get(),
@@ -1429,6 +1474,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "TACLeftThreshold",
             "TACRightThreshold",
             "TACMinlickcount",
+            "TACLeftBinary",
+            "TACRightBinary",
             "LeverThreshold",
             "LeverHoldTime_s",
             "LeverStartDebounce_s",
@@ -2976,6 +3023,30 @@ class BehaviorAcquisitionApp(tk.Tk):
                 description="Selected behavior signal used for trial detection and scoring.",
             )
         )
+        left_lick_trace = self.get_optional_binary_trace("LeftLick.bin", len(data))
+        if left_lick_trace is not None:
+            nwbfile.add_acquisition(
+                TimeSeries(
+                    name="LeftLick",
+                    data=left_lick_trace,
+                    unit="volts",
+                    starting_time=0.0,
+                    rate=rate,
+                    description=f"Continuous left lick signal from {self.get_tac_left_channel_name()}.",
+                )
+            )
+        right_lick_trace = self.get_optional_binary_trace("RightLick.bin", len(data))
+        if right_lick_trace is not None:
+            nwbfile.add_acquisition(
+                TimeSeries(
+                    name="RightLick",
+                    data=right_lick_trace,
+                    unit="volts",
+                    starting_time=0.0,
+                    rate=rate,
+                    description=f"Continuous right lick signal from {self.get_tac_right_channel_name()}.",
+                )
+            )
         trigger_trace = self.build_trigger_trace(len(data), rate)
         nwbfile.add_acquisition(
             TimeSeries(
@@ -3132,6 +3203,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("TACLeftThreshold", params["TACLeftThreshold"]),
             ("TACRightThreshold", params["TACRightThreshold"]),
             ("TACMinlickcount", params["TACMinlickcount"]),
+            ("TACLeftBinary", params["TACLeftBinary"]),
+            ("TACRightBinary", params["TACRightBinary"]),
             ("NWBExportedTrials", exported_trial_count if exported_trial_count is not None else len(self.trial_rows)),
             ("NWBOriginalTrialRows", len(self.trial_rows)),
             ("NWBTrialAnchor", "sound_epoch_start_or_trigger_time"),
@@ -3267,6 +3340,27 @@ class BehaviorAcquisitionApp(tk.Tk):
         if count <= 0:
             return []
         return list(struct.unpack(f"{count}d", data_bytes[: count * 8]))
+
+    def get_optional_binary_trace(self, filename, sample_count):
+        path = os.path.join(self.exp_folder, filename) if self.exp_folder else ""
+        if not path or not os.path.exists(path):
+            return None
+        values = self.read_binary_double_trace(path)
+        if len(values) == 0:
+            return None
+        if np is not None:
+            trace = np.asarray(values, dtype=float).reshape(-1)
+            if len(trace) < sample_count:
+                trace = np.pad(trace, (0, sample_count - len(trace)), mode="constant")
+            elif len(trace) > sample_count:
+                trace = trace[:sample_count]
+            return trace
+        trace = [float(value) for value in values]
+        if len(trace) < sample_count:
+            trace.extend([0.0] * (sample_count - len(trace)))
+        elif len(trace) > sample_count:
+            trace = trace[:sample_count]
+        return trace
 
     def build_trigger_trace(self, sample_count, rate):
         if np is not None:
@@ -3801,7 +3895,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             coords.extend((x, y))
         canvas.create_line(*coords, fill=color, width=3, smooth=True)
 
-    def draw_plot(self, times, values):
+    def draw_plot(self, times, values, signal_traces=None):
         self.plot_canvas.delete("all")
         width = max(10, self.plot_canvas.winfo_width())
         height = max(10, self.plot_canvas.winfo_height())
@@ -3811,10 +3905,25 @@ class BehaviorAcquisitionApp(tk.Tk):
         step = max(1, len(values) // max_points)
         times = times[::step]
         values = values[::step]
-        behavior_baseline = self.current_behavior_baseline if self.subtract_baseline.get() else 0.0
-        values = [value - behavior_baseline for value in values]
+        prepared_signal_traces = []
+        if signal_traces:
+            for label, trace_values, color in signal_traces:
+                downsampled = list(trace_values)[::step]
+                if len(downsampled) < len(times):
+                    downsampled.extend([0.0] * (len(times) - len(downsampled)))
+                elif len(downsampled) > len(times):
+                    downsampled = downsampled[: len(times)]
+                baseline = statistics.median(downsampled) if self.subtract_baseline.get() and downsampled else 0.0
+                prepared_signal_traces.append((label, [value - baseline for value in downsampled], color, baseline))
+            values = prepared_signal_traces[0][1] if prepared_signal_traces else values
+            behavior_baseline = prepared_signal_traces[0][3] if prepared_signal_traces else 0.0
+        else:
+            behavior_baseline = self.current_behavior_baseline if self.subtract_baseline.get() else 0.0
+            values = [value - behavior_baseline for value in values]
+            prepared_signal_traces.append(("Behavior signal", values, "#1f77b4", behavior_baseline))
         min_t, max_t = times[0], times[-1] if times[-1] != times[0] else times[0] + 1
-        min_v, max_v = min(values), max(values)
+        plotted_values = [value for _label, trace_values, _color, _baseline in prepared_signal_traces for value in trace_values]
+        min_v, max_v = min(plotted_values), max(plotted_values)
         overlay_min_v, overlay_max_v = 0.0, 1.0
         visible_trigger = any(end_s >= min_t and start_s <= max_t for start_s, end_s in self.trigger_pulses)
         visible_sound = any(
@@ -3858,11 +3967,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         bottom_pad = 34
         plot_width = max(1, width - left_pad - right_pad)
         plot_height = max(1, height - top_pad - bottom_pad)
-        points = []
-        for t, v in zip(times, values):
-            x = left_pad + (t - min_t) / (max_t - min_t) * plot_width
-            y = height - bottom_pad - (v - min_v) / (max_v - min_v) * plot_height
-            points.extend([x, y])
         x_axis_y = height - bottom_pad
         self.draw_iti_shading(min_t, max_t, left_pad, top_pad, plot_width, x_axis_y)
         self.plot_canvas.create_line(left_pad, x_axis_y, width - right_pad, x_axis_y, fill="#cccccc")
@@ -3889,8 +3993,14 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.draw_trial_state_trace(min_t, max_t, overlay_min_v, overlay_max_v, left_pad, plot_width, plot_height, x_axis_y)
         self.draw_trigger_trace(min_t, max_t, overlay_min_v, overlay_max_v, left_pad, top_pad, plot_width, plot_height, x_axis_y)
         self.draw_sound_trace(min_t, max_t, overlay_min_v, overlay_max_v, left_pad, plot_width, plot_height, x_axis_y)
-        if len(points) >= 4:
-            self.plot_canvas.create_line(*points, fill="#1f77b4", width=2)
+        for _label, trace_values, color, _baseline in prepared_signal_traces:
+            points = []
+            for t, v in zip(times, trace_values):
+                x = left_pad + (t - min_t) / (max_t - min_t) * plot_width
+                y = height - bottom_pad - (v - min_v) / (max_v - min_v) * plot_height
+                points.extend([x, y])
+            if len(points) >= 4:
+                self.plot_canvas.create_line(*points, fill=color, width=2)
         self.plot_canvas.create_text(
             8,
             8,
@@ -3898,10 +4008,13 @@ class BehaviorAcquisitionApp(tk.Tk):
             text=f"Left {min_v:.2f} to {max_v:.2f} V, right {overlay_min_v:.2f} to {overlay_max_v:.2f}, baseline {behavior_baseline:.2f} V",
             fill="#555555",
         )
-        self.plot_canvas.create_text(width - 140, 10, anchor="nw", text="Behavior signal", fill="#1f77b4")
-        self.plot_canvas.create_text(width - 120, 26, anchor="nw", text="Trigger output", fill="#d97904")
-        self.plot_canvas.create_text(width - 120, 42, anchor="nw", text="Sound output", fill="#2ca02c")
-        self.plot_canvas.create_text(width - 120, 58, anchor="nw", text="Trial state", fill="#6f42c1")
+        legend_y = 10
+        for label, _trace_values, color, _baseline in prepared_signal_traces[:3]:
+            self.plot_canvas.create_text(width - 150, legend_y, anchor="nw", text=label, fill=color)
+            legend_y += 16
+        self.plot_canvas.create_text(width - 130, legend_y, anchor="nw", text="Trigger output", fill="#d97904")
+        self.plot_canvas.create_text(width - 130, legend_y + 16, anchor="nw", text="Sound output", fill="#2ca02c")
+        self.plot_canvas.create_text(width - 130, legend_y + 32, anchor="nw", text="Trial state", fill="#6f42c1")
         self.draw_since_last_trial_timer(max_t, width)
 
     def draw_iti_shading(self, min_t, max_t, left_pad, top_pad, plot_width, x_axis_y):

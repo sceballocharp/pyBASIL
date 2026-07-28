@@ -23,6 +23,8 @@ It also writes `parameters.dat` and initializes:
 | `TrialLog.csv` | `write_trial_log()` | Trial-by-trial behavioral outcomes and timing. |
 | `Parameters.csv` | `write_parameters_csv()` | Trial-by-trial parameter rows and block labels. |
 | `BehaviorSignal.bin` | `handle_data()` | Continuous selected behavior signal as binary doubles. Older sessions may contain the legacy name `IRFork.bin`. |
+| `LeftLick.bin` | `handle_data()` | tAC-only continuous left lick signal from `TACLeftChannel`. |
+| `RightLick.bin` | `handle_data()` | tAC-only continuous right lick signal from `TACRightChannel`. |
 | `SoundCopy.bin` | `handle_data()` | Continuous recorded sound-copy channel as binary doubles. |
 | `TrialState.bin` | `handle_data()` | Continuous 0/1 trial-state trace as binary doubles. |
 | `*.nwb` | `save_nwb()` | NWB export with acquisition, stimulus, trial, and compatibility datasets. |
@@ -76,6 +78,8 @@ Readers should use the acquisition rate from `parameters.dat` to reconstruct sam
 Current binary streams:
 
 - `BehaviorSignal.bin`: selected behavior signal used for trial detection and scoring.
+- `LeftLick.bin`: tAC left lick signal, written only for `TaskType=tAC`.
+- `RightLick.bin`: tAC right lick signal, written only for `TaskType=tAC`.
 - `SoundCopy.bin`: sound-copy signal, or zeros when the column is unavailable.
 - `TrialState.bin`: synthetic trial-state trace.
 
@@ -111,11 +115,13 @@ Main functions:
 
 - `/acquisition/IRFork/data`
 - `/acquisition/BehaviorSignal/data`
+- `/acquisition/LeftLick/data` when `LeftLick.bin` exists.
+- `/acquisition/RightLick/data` when `RightLick.bin` exists.
 - `/stimulus/presentation/SoundCopy/data`
 - `/acquisition/Parameters/key`
 - `/acquisition/Parameters/value`
 
-The NWB export keeps `/acquisition/IRFork/data` as a compatibility trace but also writes `/acquisition/BehaviorSignal/data` as the current descriptive name. If new datasets are required by downstream tools, add them in `write_nwb_contract_hdf5()` and update validation.
+The NWB export keeps `/acquisition/IRFork/data` as a compatibility trace but also writes `/acquisition/BehaviorSignal/data` as the current descriptive name. tAC sessions additionally write `/acquisition/LeftLick/data` and `/acquisition/RightLick/data` when the corresponding binary files are present. If new datasets are required by downstream tools, add them in `save_nwb()` or `write_nwb_contract_hdf5()` and update validation when they become mandatory.
 
 ## Trial Anchors In NWB
 
