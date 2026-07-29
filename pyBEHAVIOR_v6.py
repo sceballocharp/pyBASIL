@@ -76,6 +76,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.plot_queue = queue.Queue()
         self.time_buffer = []
         self.data_buffer = []
+        self.lever_lick_buffer = []
         self.tac_left_buffer = []
         self.tac_right_buffer = []
         self.soundcopy_buffer = []
@@ -130,6 +131,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_pending_reward_measure = ""
         self.active_pending_reward_probability = 0.0
         self.active_pending_reward_draw = 0.0
+        self.active_pending_reward_side = "left"
         self.active_trial_base_iti_s = 0.0
         self.active_trial_extra_timeout_s = 0.0
         self.active_lever_sound_id = 1
@@ -160,6 +162,7 @@ class BehaviorAcquisitionApp(tk.Tk):
 
         self.ai_task = None
         self.reward_task = None
+        self.right_reward_task = None
         self.reward_train_after_id = None
         self.reward_train_remaining = 0
         self.reward_train_total = 0
@@ -886,6 +889,9 @@ class BehaviorAcquisitionApp(tk.Tk):
             return "ai0"
         return "ai6"
 
+    def get_lever_lick_channel_name(self):
+        return "ai0"
+
     def get_behavior_signal_column(self, rows=None):
         channel_name = self.get_behavior_signal_channel_name()
         channel_index = self.get_channel_index(channel_name)
@@ -922,6 +928,9 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.reward_task = nidaqmx.Task()
         self.reward_task.do_channels.add_do_chan(f"{device}/port2/line6", line_grouping=LineGrouping.CHAN_PER_LINE)
         self.reward_task.write(False)
+        self.right_reward_task = nidaqmx.Task()
+        self.right_reward_task.do_channels.add_do_chan(f"{device}/port2/line7", line_grouping=LineGrouping.CHAN_PER_LINE)
+        self.right_reward_task.write(False)
 
         self.log("NI tasks initialized.")
         return True
@@ -939,7 +948,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         return None
 
     def close_tasks(self):
-        for attr in ("ai_task", "reward_task"):
+        for attr in ("ai_task", "reward_task", "right_reward_task"):
             task = getattr(self, attr, None)
             if task is not None:
                 try:
@@ -989,6 +998,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_pending_reward_measure = ""
         self.active_pending_reward_probability = 0.0
         self.active_pending_reward_draw = 0.0
+        self.active_pending_reward_side = "left"
         self.active_trial_base_iti_s = 0.0
         self.active_trial_extra_timeout_s = 0.0
         self.active_lever_sound_id = 1
@@ -1050,6 +1060,7 @@ class BehaviorAcquisitionApp(tk.Tk):
     def clear_buffers(self):
         self.time_buffer.clear()
         self.data_buffer.clear()
+        self.lever_lick_buffer.clear()
         self.tac_left_buffer.clear()
         self.tac_right_buffer.clear()
         self.soundcopy_buffer.clear()
@@ -1125,12 +1136,14 @@ class BehaviorAcquisitionApp(tk.Tk):
             return
         behavior_col = self.get_behavior_signal_column(rows)
         raw_behavior_values = [row[behavior_col] for row in rows]
+        raw_lever_lick_values = [self.get_row_channel_value(row, self.get_lever_lick_channel_name(), 0.0) for row in rows]
         raw_tac_left_values = [self.get_row_channel_value(row, self.get_tac_left_channel_name(), 0.0) for row in rows]
         raw_tac_right_values = [self.get_row_channel_value(row, self.get_tac_right_channel_name(), 0.0) for row in rows]
         soundcopy_col = self.get_soundcopy_column(rows)
         raw_soundcopy_values = [row[soundcopy_col] for row in rows] if soundcopy_col is not None else [0.0] * len(rows)
         self.time_buffer.extend(times)
         self.data_buffer.extend(raw_behavior_values)
+        self.lever_lick_buffer.extend(raw_lever_lick_values)
         self.tac_left_buffer.extend(raw_tac_left_values)
         self.tac_right_buffer.extend(raw_tac_right_values)
         self.soundcopy_buffer.extend(raw_soundcopy_values)
@@ -1141,6 +1154,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         while self.time_buffer and self.time_buffer[0] < min_time:
             self.time_buffer.pop(0)
             self.data_buffer.pop(0)
+            if self.lever_lick_buffer:
+                self.lever_lick_buffer.pop(0)
             if self.tac_left_buffer:
                 self.tac_left_buffer.pop(0)
             if self.tac_right_buffer:
@@ -1168,6 +1183,15 @@ class BehaviorAcquisitionApp(tk.Tk):
                 [
                     (f"Left {self.get_tac_left_channel_name()}", list(self.tac_left_buffer), "#1f77b4"),
                     (f"Right {self.get_tac_right_channel_name()}", list(self.tac_right_buffer), "#d62728"),
+                ],
+            )
+        elif self.is_lever_task():
+            plot_payload = (
+                list(self.time_buffer),
+                list(self.data_buffer),
+                [
+                    (f"Lever {self.get_behavior_signal_channel_name()}", list(self.data_buffer), "#1f77b4"),
+                    (f"Licks {self.get_lever_lick_channel_name()}", list(self.lever_lick_buffer), "#d62728"),
                 ],
             )
         else:
@@ -1394,6 +1418,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "PunishInterval": self.punish_interval.get(),
             "RewardGo": self.reward_go.get(),
             "RewardProb": self.reward_go.get(),
+            "LeftRewardLine": "port2/line6",
+            "RightRewardLine": "port2/line7" if self.is_tac_task() else "",
             "Pavlov": self.pavlov.get(),
             "PunishNoGoFA": self.punish_no_go_fa.get(),
             "Minlickcount": self.min_lick_count.get(),
@@ -1465,6 +1491,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "PunishInterval",
             "RewardGo",
             "RewardProb",
+            "LeftRewardLine",
+            "RightRewardLine",
             "Pavlov",
             "PunishNoGoFA",
             "Minlickcount",
@@ -1556,6 +1584,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "punish_interval": params["PunishInterval"],
             "reward_go": params["RewardGo"],
             "reward_prob": params["RewardProb"],
+            "left_reward_line": params["LeftRewardLine"],
+            "right_reward_line": params["RightRewardLine"],
             "pavlov": params["Pavlov"],
             "punish_no_go_fa": params["PunishNoGoFA"],
             "min_lick_count": params["Minlickcount"],
@@ -1653,6 +1683,12 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_lick_count = 0
         self.active_reward_decided = False
         self.active_reward_sent = False
+        self.active_pending_reward_due_s = None
+        self.active_pending_reward_row = None
+        self.active_pending_reward_measure = ""
+        self.active_pending_reward_probability = 0.0
+        self.active_pending_reward_draw = 0.0
+        self.active_pending_reward_side = "left"
         self.active_trial_base_iti_s = iti_s
         self.active_trial_extra_timeout_s = 0.0
         self.trigger_reset_seen_for_new_trial = False
@@ -2492,15 +2528,16 @@ class BehaviorAcquisitionApp(tk.Tk):
         if draw <= reward_probability and self.trigger_output_on_crossing.get():
             delay_s = self.get_classic_go_reward_delay_s(row)
             reward_start_s = (start_s or 0.0) + delay_s
+            reward_side = self.get_reward_output_side(row)
             if delay_s > 0:
-                self.schedule_pending_go_reward(row, reward_start_s, measure, reward_probability, draw)
+                self.schedule_pending_go_reward(row, reward_start_s, measure, reward_probability, draw, reward_side)
             else:
-                self.send_output_pulse(from_worker=True, start_s=start_s)
+                self.send_output_pulse(from_worker=True, start_s=start_s, reward_side=reward_side)
                 self.active_reward_sent = True
                 self.plot_queue.put((
                     "log",
                     f"Trial {row['trial']} reached HIT threshold with {measure}. "
-                    f"Reward sent, p={reward_probability:.3f}, draw={draw:.3f}.",
+                    f"Reward sent to {reward_side}, p={reward_probability:.3f}, draw={draw:.3f}.",
                 ))
         else:
             self.plot_queue.put((
@@ -2517,19 +2554,25 @@ class BehaviorAcquisitionApp(tk.Tk):
             return 0.0
         return max(0.0, self.parse_float(self.reward_delay_s, 0.0))
 
-    def schedule_pending_go_reward(self, row, reward_start_s, measure, reward_probability, draw):
+    def get_reward_output_side(self, row):
+        if row is not None and str(row.get("TrialType", "")).endswith("tAC-right"):
+            return "right"
+        return "left"
+
+    def schedule_pending_go_reward(self, row, reward_start_s, measure, reward_probability, draw, reward_side="left"):
         self.active_pending_reward_due_s = reward_start_s
         self.active_pending_reward_row = row
         self.active_pending_reward_measure = measure
         self.active_pending_reward_probability = reward_probability
         self.active_pending_reward_draw = draw
+        self.active_pending_reward_side = reward_side
         reward_duration_s = max(0.0, self.parse_float(self.pulse_ms, 50) / 1000.0)
         if self.active_trial_end_s is not None:
             self.active_trial_end_s = max(self.active_trial_end_s, reward_start_s + reward_duration_s)
         self.plot_queue.put((
             "log",
             f"Trial {row['trial']} reached HIT threshold with {measure}. "
-            f"Reward scheduled after {self.get_classic_go_reward_delay_s(row):.3f} s, "
+            f"{reward_side.capitalize()} reward scheduled after {self.get_classic_go_reward_delay_s(row):.3f} s, "
             f"p={reward_probability:.3f}, draw={draw:.3f}.",
         ))
 
@@ -2539,11 +2582,15 @@ class BehaviorAcquisitionApp(tk.Tk):
         if sample_time_s < self.active_pending_reward_due_s:
             return
         row = self.active_pending_reward_row
-        self.send_output_pulse(from_worker=True, start_s=self.active_pending_reward_due_s)
+        self.send_output_pulse(
+            from_worker=True,
+            start_s=self.active_pending_reward_due_s,
+            reward_side=self.active_pending_reward_side,
+        )
         self.active_reward_sent = True
         self.plot_queue.put((
             "log",
-            f"Trial {row['trial'] if row else '?'} delayed reward sent with {self.active_pending_reward_measure}. "
+            f"Trial {row['trial'] if row else '?'} delayed {self.active_pending_reward_side} reward sent with {self.active_pending_reward_measure}. "
             f"p={self.active_pending_reward_probability:.3f}, draw={self.active_pending_reward_draw:.3f}.",
         ))
         self.active_pending_reward_due_s = None
@@ -2551,6 +2598,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_pending_reward_measure = ""
         self.active_pending_reward_probability = 0.0
         self.active_pending_reward_draw = 0.0
+        self.active_pending_reward_side = "left"
 
     def get_pavlov_probability(self):
         return min(1.0, max(0.0, self.parse_float(self.pavlov, 0.0)))
@@ -2636,21 +2684,23 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.last_trial_sound_var.set(str(sound_id))
         self.last_trial_type_var.set(f"{trial_type_id} {trial_type}")
 
-    def send_output_pulse(self, from_worker=False, start_s=None):
+    def send_output_pulse(self, from_worker=False, start_s=None, reward_side="left"):
         pulse_s = max(0, self.parse_float(self.pulse_ms, 50) / 1000.0)
         self.record_trigger_pulse(pulse_s, start_s=start_s)
         try:
-            if self.reward_task is None and nidaqmx is not None:
+            if (self.reward_task is None or (reward_side == "right" and self.right_reward_task is None)) and nidaqmx is not None:
                 self.setup_tasks()
-            if self.reward_task is not None:
-                self.reward_task.write(True)
+            task = self.right_reward_task if reward_side == "right" else self.reward_task
+            line_name = "port2/line7" if reward_side == "right" else "port2/line6"
+            if task is not None:
+                task.write(True)
                 time.sleep(pulse_s)
-                self.reward_task.write(False)
-                msg = f"Output pulse sent for {pulse_s * 1000:g} ms."
+                task.write(False)
+                msg = f"{reward_side.capitalize()} output pulse sent on {line_name} for {pulse_s * 1000:g} ms."
             else:
-                msg = "Output pulse simulated; nidaqmx is not available."
+                msg = f"{reward_side.capitalize()} output pulse simulated on {line_name}; nidaqmx is not available."
         except Exception as exc:
-            msg = f"Output pulse error: {exc}"
+            msg = f"{reward_side.capitalize()} output pulse error: {exc}"
         if from_worker:
             self.plot_queue.put(("log", msg))
         else:
@@ -3194,6 +3244,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("PunishInterval", params["PunishInterval"]),
             ("RewardGo", params["RewardGo"]),
             ("RewardProb", params["RewardProb"]),
+            ("LeftRewardLine", params["LeftRewardLine"]),
+            ("RightRewardLine", params["RightRewardLine"]),
             ("Pavlov", params["Pavlov"]),
             ("PunishNoGoFA", params["PunishNoGoFA"]),
             ("Minlickcount", params["Minlickcount"]),

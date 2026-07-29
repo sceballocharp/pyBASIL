@@ -275,6 +275,13 @@ The first side to reach `TACMinlickcount` during `ResponseWindow_s` becomes the 
 
 Correct choices use `maybe_send_go_reward()` with `RewardGo` and `RewardDelay_s`. Wrong choices add the `PunishNoGoFA` timeout.
 
+tAC uses side-specific reward outputs:
+
+- Left-correct HIT: `Device/port2/line6`
+- Right-correct HIT: `Device/port2/line7`
+
+The GUI `Device` value supplies the device name, for example `Dev1/port2/line6` and `Dev1/port2/line7`.
+
 ## Reward Output
 
 `send_output_pulse()` controls the reward/trigger digital output. It also records pulses for plotting and export through `record_trigger_pulse()`.
