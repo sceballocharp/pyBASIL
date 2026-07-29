@@ -136,6 +136,7 @@ Rows outside the continuous recording can be skipped during export, and the expo
 ## Data-Saving Pitfalls
 
 - If a new parameter affects analysis, include it in `parameters.dat`, `Parameters.csv`, and NWB metadata.
+- tAC side-specific reward routing is saved as `LeftRewardLine=port2/line6` and `RightRewardLine=port2/line7`.
 - If a new trial outcome is added, update CSV rows and NWB trial-type conversion helpers.
 - If a new continuous stream is added, write it, close it, export it, and validate it.
 - Avoid changing existing field names unless downstream analysis is updated at the same time.

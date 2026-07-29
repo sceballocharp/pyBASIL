@@ -7,6 +7,7 @@ This document describes live plotting and result visualization in `pyBEHAVIOR_v6
 Plotting provides:
 
 - Live signal display for the primary behavior signal.
+- Extra task-specific signal traces, such as Lever licks on `ai0` and tAC left/right licks.
 - Separate overlay traces for trigger/reward output, sound output, and trial state.
 - ITI shading after trial end.
 - A results window with recent trial outcomes, rates, conditions, and crossing durations.
@@ -29,6 +30,8 @@ self.plot_queue.put(("log", message))
 | Data | State or function |
 | --- | --- |
 | Primary behavior trace | `time_buffer`, `data_buffer` |
+| Lever lick trace | `lever_lick_buffer`, sampled from `ai0` for live plotting |
+| tAC lick traces | `tac_left_buffer`, `tac_right_buffer` |
 | Trigger/reward pulses | `trigger_pulses`, `record_trigger_pulse()` |
 | Sound output | `sound_outputs`, `record_sound_output()` |
 | Trial state | `trial_state_intervals`, `get_trial_state_values()` |

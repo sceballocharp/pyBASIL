@@ -27,7 +27,7 @@ These are shared by every protocol tab.
 | `TriggerTypeDropDown` | Trigger | Response signal source: `IRFork`, `Lick`, or `None`. |
 | `OuputformatDropDown` | Output format | Output format selector. Note the historical misspelling is preserved for compatibility. |
 
-The GUI `Channels` field should include `ai6,ai5,ai1,ai0` for the current rig layout. Runtime behavior signal selection is trigger-dependent: IRFork and Lever use `ai6`; Lick uses `ai0`; tAC defaults to left `ai0` and right `ai1`; SoundCopy uses `ai5`. The selected behavior signal is written to `BehaviorSignal.bin` and recorded as `BehaviorSignalChannel` in session metadata.
+The GUI `Channels` field should include `ai6,ai5,ai1,ai0` for the current rig layout. Runtime behavior signal selection is trigger-dependent: IRFork and Lever use `ai6`; Lick uses `ai0`; tAC defaults to left `ai0` and right `ai1`; SoundCopy uses `ai5`. During Lever tasks, `ai0` is also shown as a live lick trace, but lever trial start/reward logic still uses `ai6`. The selected behavior signal is written to `BehaviorSignal.bin` and recorded as `BehaviorSignalChannel` in session metadata.
 
 ## Classic Go/No-Go
 
@@ -124,7 +124,7 @@ TaskType=Lever
 | `Rewardduration_ms` | Reward duration ms | Water valve/trigger pulse duration in ms. |
 | `RewardGo` | RewardGo Prob | Probability that a successful lever response is rewarded, from `0` to `1`. |
 
-Lever trials also require a clean reset between trials: after the trial ends and the ITI has elapsed, the lever signal must be observed below `LeverThreshold` before the next upward crossing can start a new trial. A new lever press must then remain above `LeverThreshold` for `LeverStartDebounce_s` before the trial is accepted, preventing single-sample noise from starting trials.
+Lever trials also require a clean reset between trials: after the trial ends and the ITI has elapsed, the lever signal must be observed below `LeverThreshold` before the next upward crossing can start a new trial. A new lever press must then remain above `LeverThreshold` for `LeverStartDebounce_s` before the trial is accepted, preventing single-sample noise from starting trials. The live plot shows both the lever/IR fork signal from `ai6` and licks from `ai0`; only `ai6` controls the lever behavior.
 
 ## DMTS
 
@@ -209,6 +209,15 @@ tAC outcomes:
 | No side reaches the criterion before response-window end | MISS |
 
 Correct choices use `RewardGo` and `RewardDelay_s`. Wrong choices use `PunishNoGoFA` as the timeout.
+
+tAC reward outputs:
+
+| Correct side | Digital output |
+| --- | --- |
+| left | `Dev1/port2/line6` |
+| right | `Dev1/port2/line7` |
+
+The actual device name comes from the GUI `Device` field, so `Dev1` changes if that field changes. Session metadata stores `LeftRewardLine=port2/line6` and `RightRewardLine=port2/line7`.
 
 ## Import Compatibility
 

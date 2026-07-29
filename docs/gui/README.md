@@ -38,7 +38,7 @@ Current top-level sections:
 | Left column | `Session` | User, mouse, project, output format, save root. |
 | Left column | `Acquisition` | NI device, channel list, acquisition rate, plotting window, callback size, and scaling. Terminal configuration is kept internal. |
 | Left column | `Trigger And Sound` | Trigger source, binary writing, output pulse, sound playback, threshold, pulse duration, sound ID/level, task-specific checkboxes. |
-| Left column, center | `Live Acquisition` | Live plot canvas. For tAC, this draws separate left/right lick traces from `TACLeftChannel` and `TACRightChannel`. |
+| Left column, center | `Live Acquisition` | Live plot canvas. For Lever, this draws the `ai6` lever/IR fork signal plus the `ai0` lick trace. For tAC, this draws separate left/right lick traces from `TACLeftChannel` and `TACRightChannel`. |
 | Left column, bottom | `Output` | Text log. |
 | Right parameter column, top | `Closed Loop Sequence` | Sequence length, values, weights, seed, max trials, sequence status. |
 | Right parameter column, bottom | `Trial Structure` | Task timing, response criteria, reward settings, task-specific fields. |
