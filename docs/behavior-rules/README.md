@@ -157,13 +157,19 @@ LeverRequireRelease=1
 
 The animal must release after a valid hold. Release is accepted after the signal has stayed below threshold for `LeverReleaseDebounce_s`.
 
-The current success check in `is_lever_release_success()` uses:
+The current success check in `is_lever_release_success()` uses the lower edge of the release window:
+
+```text
+hold_s >= LeverHoldTime_s - LeverReleaseWindow_s
+```
+
+Reward size then depends on where release happened:
 
 ```text
 LeverHoldTime_s - LeverReleaseWindow_s <= hold_s <= LeverHoldTime_s + LeverReleaseWindow_s
 ```
 
-The default release window is `0.25` s.
+This target window sends three reward pulses total. Releases later than the upper edge still count as HIT but send the normal single reward pulse. The default release window is `0.25` s.
 
 ### Lever Sound Playback
 

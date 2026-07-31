@@ -23,7 +23,7 @@ self.plot_queue.put(("results", None))
 self.plot_queue.put(("log", message))
 ```
 
-`_drain_plot_queue()` consumes those messages and calls drawing functions.
+`_drain_plot_queue()` consumes those messages on a 50 ms GUI timer. If multiple plot messages are waiting, it keeps only the newest plot payload and discards older plot frames. Log/status messages are still processed, and multiple pending results refreshes are collapsed into one redraw. This prevents the GUI from falling behind and showing delayed live traces.
 
 ## Live Plot Data Sources
 
@@ -41,7 +41,7 @@ self.plot_queue.put(("log", message))
 
 | Function | Role |
 | --- | --- |
-| `draw_plot(times, values)` | Clears and redraws the live acquisition canvas. |
+| `draw_plot(times, values)` | Redraws the live acquisition canvas with full and fast redraw paths. |
 | `draw_iti_shading(...)` | Shades the current ITI interval. |
 | `draw_trial_state_trace(...)` | Draws trial-state overlay. |
 | `draw_trigger_trace(...)` | Draws reward/trigger pulse overlay. |
@@ -65,6 +65,15 @@ Relevant GUI fields:
 - `Ymax2`
 
 Overlay traces are rendered into the second y-axis range. This keeps digital-style event traces visually separate from the analog behavior signal.
+
+## Redraw Model
+
+`draw_plot()` uses two redraw levels:
+
+- A full redraw clears the canvas and rebuilds axes, tick labels, legends, scale labels, and dynamic traces.
+- A fast redraw deletes only canvas items tagged `plot_dynamic`, then redraws ITI shading, trial state, trigger pulses, sound output, timer text, and signal traces.
+
+The static canvas elements are refreshed periodically and whenever plot geometry or trace labels change. This reduces canvas work during live acquisition while keeping the moving traces responsive.
 
 ## ITI Shading
 

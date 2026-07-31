@@ -74,6 +74,9 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.acq_thread = None
         self.running = False
         self.plot_queue = queue.Queue()
+        self.plot_static_signature = None
+        self.plot_fast_frame_count = 0
+        self.plot_full_redraw_interval = 10
         self.time_buffer = []
         self.data_buffer = []
         self.lever_lick_buffer = []
@@ -284,8 +287,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         ttk.Label(trig, text="Trigger").grid(row=0, column=0, padx=(4, 4))
         ttk.Combobox(trig, textvariable=self.trigger_type, values=("IRFork", "Lick", "None"), width=9).grid(row=0, column=1)
         ttk.Checkbutton(trig, text="Write BehaviorSignal.bin", variable=self.write_behavior_signal_bin).grid(row=0, column=2, padx=8)
-        ttk.Checkbutton(trig, text="Trigger output", variable=self.trigger_output_on_crossing).grid(row=0, column=3, padx=8)
-        ttk.Button(trig, text="Trigger Output", command=self.send_output_pulse).grid(row=0, column=4, padx=8)
+        ttk.Checkbutton(trig, text="Trigger reward", variable=self.trigger_output_on_crossing).grid(row=0, column=3, padx=8)
+        ttk.Button(trig, text="Trigger Reward", command=self.send_output_pulse).grid(row=0, column=4, padx=8)
         ttk.Checkbutton(trig, text="Play sound", variable=self.play_sound_on_crossing).grid(row=0, column=5, padx=8)
         self._entry(trig, 6, "Threshold V", self.threshold_v, width=6)
         self._entry(trig, 8, "Pulse ms", self.pulse_ms, width=6)
@@ -1074,6 +1077,8 @@ class BehaviorAcquisitionApp(tk.Tk):
 
     def clear_plot(self):
         self.clear_buffers()
+        self.plot_static_signature = None
+        self.plot_fast_frame_count = 0
         self.plot_canvas.delete("all")
         self.log_text.delete("1.0", tk.END)
 
@@ -2204,10 +2209,18 @@ class BehaviorAcquisitionApp(tk.Tk):
             return False
         hold_s = max(0.0, release_time_s - self.active_high_start_s)
         target_s = self.get_lever_hold_time_s()
-        return hold_s >= target_s
+        window_s = self.get_lever_release_window_s()
+        return hold_s >= max(0.0, target_s - window_s)
 
     def get_lever_release_window_s(self):
         return max(0.0, self.parse_float(self.lever_release_window_s, 0.25))
+
+    def get_lever_release_reward_count(self, hold_s):
+        if not self.is_lever_task() or not self.lever_require_release.get():
+            return 1
+        target_s = self.get_lever_hold_time_s()
+        window_s = self.get_lever_release_window_s()
+        return 3 if target_s - window_s <= hold_s <= target_s + window_s else 1
 
     def play_next_lever_sound(self, sample_time_s):
         if not self.play_sound_on_crossing.get():
@@ -2264,7 +2277,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         row["FA"] = 0
         row["ResultType"] = "HIT" if success else "MISS"
         if success:
-            self.maybe_send_go_reward(row, hold_s, start_s=trial_end_s)
+            reward_count = self.get_lever_release_reward_count(hold_s)
+            self.maybe_send_go_reward(row, hold_s, start_s=trial_end_s, reward_count=reward_count)
         self.apply_trial_timeout(row, trial_end_s)
         self.set_trial_end_time(row, trial_end_s)
         self.write_trial_log()
@@ -2515,10 +2529,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.dict_across_trials.setdefault(trial_type, []).append(crossing_duration_s)
         self.trial_crossing_duration_stored.add(trial_number)
 
-    def maybe_send_go_reward(self, row, total_s, start_s=None):
+    def maybe_send_go_reward(self, row, total_s, start_s=None, reward_count=1):
         if self.active_reward_decided:
             return
         self.active_reward_decided = True
+        reward_count = max(1, int(reward_count))
         reward_probability = min(1.0, max(0.0, self.parse_float(self.reward_go, 1.0)))
         draw = random.random()
         if self.is_lick_trigger() or self.is_tac_task():
@@ -2532,12 +2547,13 @@ class BehaviorAcquisitionApp(tk.Tk):
             if delay_s > 0:
                 self.schedule_pending_go_reward(row, reward_start_s, measure, reward_probability, draw, reward_side)
             else:
-                self.send_output_pulse(from_worker=True, start_s=start_s, reward_side=reward_side)
+                self.send_reward_pulses(reward_count, from_worker=True, start_s=start_s, reward_side=reward_side)
                 self.active_reward_sent = True
+                reward_text = "Reward sent" if reward_count == 1 else f"{reward_count} rewards sent"
                 self.plot_queue.put((
                     "log",
                     f"Trial {row['trial']} reached HIT threshold with {measure}. "
-                    f"Reward sent to {reward_side}, p={reward_probability:.3f}, draw={draw:.3f}.",
+                    f"{reward_text} to {reward_side}, p={reward_probability:.3f}, draw={draw:.3f}.",
                 ))
         else:
             self.plot_queue.put((
@@ -2545,6 +2561,17 @@ class BehaviorAcquisitionApp(tk.Tk):
                 f"Trial {row['trial']} reached HIT threshold with {measure}. "
                 f"Reward skipped, p={reward_probability:.3f}, draw={draw:.3f}.",
             ))
+
+    def send_reward_pulses(self, count, from_worker=False, start_s=None, reward_side="left"):
+        count = max(1, int(count))
+        pulse_s = max(0.0, self.parse_float(self.pulse_ms, 50) / 1000.0)
+        for index in range(count):
+            pulse_start_s = start_s
+            if start_s is not None:
+                pulse_start_s = start_s + index * pulse_s * 2
+            self.send_output_pulse(from_worker=from_worker, start_s=pulse_start_s, reward_side=reward_side)
+            if index < count - 1 and pulse_s > 0:
+                time.sleep(pulse_s)
 
     def get_classic_go_reward_delay_s(self, row):
         if row is None:
@@ -3561,19 +3588,25 @@ class BehaviorAcquisitionApp(tk.Tk):
         return trace
 
     def _drain_plot_queue(self):
+        latest_plot_payload = None
+        results_pending = False
         try:
             while True:
                 kind, payload = self.plot_queue.get_nowait()
                 if kind == "plot":
-                    self.draw_plot(*payload)
+                    latest_plot_payload = payload
                 elif kind == "log":
                     self.log(payload)
                 elif kind == "status":
                     self.set_status(payload)
                 elif kind == "results":
-                    self.redraw_results_window()
+                    results_pending = True
         except queue.Empty:
             pass
+        if results_pending:
+            self.redraw_results_window()
+        if latest_plot_payload is not None:
+            self.draw_plot(*latest_plot_payload)
         self.after(50, self._drain_plot_queue)
 
     def open_results_window(self):
@@ -3948,7 +3981,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         canvas.create_line(*coords, fill=color, width=3, smooth=True)
 
     def draw_plot(self, times, values, signal_traces=None):
-        self.plot_canvas.delete("all")
         width = max(10, self.plot_canvas.winfo_width())
         height = max(10, self.plot_canvas.winfo_height())
         if not times or not values:
@@ -4020,28 +4052,55 @@ class BehaviorAcquisitionApp(tk.Tk):
         plot_width = max(1, width - left_pad - right_pad)
         plot_height = max(1, height - top_pad - bottom_pad)
         x_axis_y = height - bottom_pad
-        self.draw_iti_shading(min_t, max_t, left_pad, top_pad, plot_width, x_axis_y)
-        self.plot_canvas.create_line(left_pad, x_axis_y, width - right_pad, x_axis_y, fill="#cccccc")
-        self.plot_canvas.create_line(left_pad, top_pad, left_pad, x_axis_y, fill="#cccccc")
         right_axis_x = left_pad + plot_width
-        self.plot_canvas.create_line(right_axis_x, top_pad, right_axis_x, x_axis_y, fill="#cccccc")
-        first_second = math.ceil(min_t)
-        last_second = math.floor(max_t)
-        for second in range(first_second, last_second + 1):
-            tick_x = left_pad + (second - min_t) / (max_t - min_t) * plot_width
-            self.plot_canvas.create_line(tick_x, top_pad, tick_x, x_axis_y, fill="#eeeeee")
-        for i in range(5):
-            frac = i / 4
-            tick_x = left_pad + frac * plot_width
-            tick_t = min_t + frac * (max_t - min_t)
-            self.plot_canvas.create_line(tick_x, x_axis_y, tick_x, x_axis_y + 4, fill="#999999")
-            self.plot_canvas.create_text(tick_x, x_axis_y + 16, text=f"{tick_t:.1f}", fill="#555555")
-            left_tick_v = min_v + (1.0 - frac) * (max_v - min_v)
-            right_tick_v = overlay_min_v + (1.0 - frac) * (overlay_max_v - overlay_min_v)
-            tick_y = top_pad + frac * plot_height
-            self.plot_canvas.create_text(left_pad - 5, tick_y, text=f"{left_tick_v:.1f}", anchor="e", fill="#1f77b4", font=("Segoe UI", 8))
-            self.plot_canvas.create_text(right_axis_x + 5, tick_y, text=f"{right_tick_v:.1f}", anchor="w", fill="#555555", font=("Segoe UI", 8))
-        self.plot_canvas.create_text(width / 2, height - 6, text="Time (s)", fill="#555555")
+        trace_signature = tuple((label, color) for label, _trace_values, color, _baseline in prepared_signal_traces[:3])
+        static_signature = (width, height, trace_signature, self.auto_scale.get())
+        self.plot_fast_frame_count += 1
+        full_redraw = (
+            self.plot_static_signature != static_signature
+            or self.plot_fast_frame_count >= self.plot_full_redraw_interval
+        )
+        if full_redraw:
+            self.plot_canvas.delete("all")
+            self.plot_static_signature = static_signature
+            self.plot_fast_frame_count = 0
+            self.plot_canvas.create_line(left_pad, x_axis_y, width - right_pad, x_axis_y, fill="#cccccc")
+            self.plot_canvas.create_line(left_pad, top_pad, left_pad, x_axis_y, fill="#cccccc")
+            self.plot_canvas.create_line(right_axis_x, top_pad, right_axis_x, x_axis_y, fill="#cccccc")
+            first_second = math.ceil(min_t)
+            last_second = math.floor(max_t)
+            for second in range(first_second, last_second + 1):
+                tick_x = left_pad + (second - min_t) / (max_t - min_t) * plot_width
+                self.plot_canvas.create_line(tick_x, top_pad, tick_x, x_axis_y, fill="#eeeeee")
+            for i in range(5):
+                frac = i / 4
+                tick_x = left_pad + frac * plot_width
+                tick_t = min_t + frac * (max_t - min_t)
+                self.plot_canvas.create_line(tick_x, x_axis_y, tick_x, x_axis_y + 4, fill="#999999")
+                self.plot_canvas.create_text(tick_x, x_axis_y + 16, text=f"{tick_t:.1f}", fill="#555555")
+                left_tick_v = min_v + (1.0 - frac) * (max_v - min_v)
+                right_tick_v = overlay_min_v + (1.0 - frac) * (overlay_max_v - overlay_min_v)
+                tick_y = top_pad + frac * plot_height
+                self.plot_canvas.create_text(left_pad - 5, tick_y, text=f"{left_tick_v:.1f}", anchor="e", fill="#1f77b4", font=("Segoe UI", 8))
+                self.plot_canvas.create_text(right_axis_x + 5, tick_y, text=f"{right_tick_v:.1f}", anchor="w", fill="#555555", font=("Segoe UI", 8))
+            self.plot_canvas.create_text(width / 2, height - 6, text="Time (s)", fill="#555555")
+            self.plot_canvas.create_text(
+                8,
+                8,
+                anchor="nw",
+                text=f"Left {min_v:.2f} to {max_v:.2f} V, right {overlay_min_v:.2f} to {overlay_max_v:.2f}, baseline {behavior_baseline:.2f} V",
+                fill="#555555",
+            )
+            legend_y = 10
+            for label, _trace_values, color, _baseline in prepared_signal_traces[:3]:
+                self.plot_canvas.create_text(width - 150, legend_y, anchor="nw", text=label, fill=color)
+                legend_y += 16
+            self.plot_canvas.create_text(width - 130, legend_y, anchor="nw", text="Trigger reward", fill="#d97904")
+            self.plot_canvas.create_text(width - 130, legend_y + 16, anchor="nw", text="Sound output", fill="#2ca02c")
+            self.plot_canvas.create_text(width - 130, legend_y + 32, anchor="nw", text="Trial state", fill="#6f42c1")
+        else:
+            self.plot_canvas.delete("plot_dynamic")
+        self.draw_iti_shading(min_t, max_t, left_pad, top_pad, plot_width, x_axis_y)
         self.draw_trial_state_trace(min_t, max_t, overlay_min_v, overlay_max_v, left_pad, plot_width, plot_height, x_axis_y)
         self.draw_trigger_trace(min_t, max_t, overlay_min_v, overlay_max_v, left_pad, top_pad, plot_width, plot_height, x_axis_y)
         self.draw_sound_trace(min_t, max_t, overlay_min_v, overlay_max_v, left_pad, plot_width, plot_height, x_axis_y)
@@ -4052,21 +4111,7 @@ class BehaviorAcquisitionApp(tk.Tk):
                 y = height - bottom_pad - (v - min_v) / (max_v - min_v) * plot_height
                 points.extend([x, y])
             if len(points) >= 4:
-                self.plot_canvas.create_line(*points, fill=color, width=2)
-        self.plot_canvas.create_text(
-            8,
-            8,
-            anchor="nw",
-            text=f"Left {min_v:.2f} to {max_v:.2f} V, right {overlay_min_v:.2f} to {overlay_max_v:.2f}, baseline {behavior_baseline:.2f} V",
-            fill="#555555",
-        )
-        legend_y = 10
-        for label, _trace_values, color, _baseline in prepared_signal_traces[:3]:
-            self.plot_canvas.create_text(width - 150, legend_y, anchor="nw", text=label, fill=color)
-            legend_y += 16
-        self.plot_canvas.create_text(width - 130, legend_y, anchor="nw", text="Trigger output", fill="#d97904")
-        self.plot_canvas.create_text(width - 130, legend_y + 16, anchor="nw", text="Sound output", fill="#2ca02c")
-        self.plot_canvas.create_text(width - 130, legend_y + 32, anchor="nw", text="Trial state", fill="#6f42c1")
+                self.plot_canvas.create_line(*points, fill=color, width=2, tags=("plot_dynamic",))
         self.draw_since_last_trial_timer(max_t, width)
 
     def draw_iti_shading(self, min_t, max_t, left_pad, top_pad, plot_width, x_axis_y):
@@ -4081,10 +4126,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         x1 = left_pad + (shade_end_s - min_t) / (max_t - min_t) * plot_width
         if x1 <= x0:
             x1 = x0 + 1
-        self.plot_canvas.create_rectangle(x0, top_pad, x1, x_axis_y, fill="#f3f0df", outline="")
-        self.plot_canvas.create_line(x0, top_pad, x0, x_axis_y, fill="#c7b76a", dash=(4, 3))
+        self.plot_canvas.create_rectangle(x0, top_pad, x1, x_axis_y, fill="#f3f0df", outline="", tags=("plot_dynamic",))
+        self.plot_canvas.create_line(x0, top_pad, x0, x_axis_y, fill="#c7b76a", dash=(4, 3), tags=("plot_dynamic",))
         if self.next_trial_allowed_time_s <= max_t:
-            self.plot_canvas.create_line(x1, top_pad, x1, x_axis_y, fill="#c7b76a", dash=(4, 3))
+            self.plot_canvas.create_line(x1, top_pad, x1, x_axis_y, fill="#c7b76a", dash=(4, 3), tags=("plot_dynamic",))
 
     def draw_since_last_trial_timer(self, current_time_s, width):
         if self.active_trial_index is not None:
@@ -4103,6 +4148,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             text=text,
             fill="#333333",
             font=("Segoe UI", 10, "bold"),
+            tags=("plot_dynamic",),
         )
 
     def draw_trial_state_trace(self, min_t, max_t, min_v, max_v, left_pad, plot_width, plot_height, x_axis_y):
@@ -4118,7 +4164,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         low_y = y_for(0.0)
         high_y = y_for(1.0)
         if min_v <= 0.0 <= max_v:
-            self.plot_canvas.create_line(left_pad, low_y, left_pad + plot_width, low_y, fill="#d8ccef")
+            self.plot_canvas.create_line(left_pad, low_y, left_pad + plot_width, low_y, fill="#d8ccef", tags=("plot_dynamic",))
         for start_s, end_s in list(self.trial_state_intervals):
             interval_end_s = end_s if end_s is not None else max_t
             if interval_end_s < min_t or start_s > max_t:
@@ -4127,10 +4173,10 @@ class BehaviorAcquisitionApp(tk.Tk):
             end_x = x_for(min(interval_end_s, max_t))
             if end_x <= start_x:
                 end_x = start_x + 1
-            self.plot_canvas.create_line(start_x, low_y, start_x, high_y, fill="#6f42c1", width=2)
-            self.plot_canvas.create_line(start_x, high_y, end_x, high_y, fill="#6f42c1", width=2)
+            self.plot_canvas.create_line(start_x, low_y, start_x, high_y, fill="#6f42c1", width=2, tags=("plot_dynamic",))
+            self.plot_canvas.create_line(start_x, high_y, end_x, high_y, fill="#6f42c1", width=2, tags=("plot_dynamic",))
             if end_s is not None and end_s <= max_t:
-                self.plot_canvas.create_line(end_x, high_y, end_x, low_y, fill="#6f42c1", width=2)
+                self.plot_canvas.create_line(end_x, high_y, end_x, low_y, fill="#6f42c1", width=2, tags=("plot_dynamic",))
 
     def draw_trigger_trace(self, min_t, max_t, min_v, max_v, left_pad, top_pad, plot_width, plot_height, x_axis_y):
         def x_for(t):
@@ -4142,16 +4188,16 @@ class BehaviorAcquisitionApp(tk.Tk):
         low_y = y_for(0.0)
         high_y = y_for(5.0)
         if top_pad <= low_y <= x_axis_y:
-            self.plot_canvas.create_line(left_pad, low_y, left_pad + plot_width, low_y, fill="#f1c27d")
+            self.plot_canvas.create_line(left_pad, low_y, left_pad + plot_width, low_y, fill="#f1c27d", tags=("plot_dynamic",))
 
         for start_s, end_s in list(self.trigger_pulses):
             if end_s < min_t or start_s > max_t:
                 continue
             start_x = x_for(max(start_s, min_t))
             end_x = x_for(min(end_s, max_t))
-            self.plot_canvas.create_line(start_x, low_y, start_x, high_y, fill="#d97904", width=2)
-            self.plot_canvas.create_line(start_x, high_y, end_x, high_y, fill="#d97904", width=2)
-            self.plot_canvas.create_line(end_x, high_y, end_x, low_y, fill="#d97904", width=2)
+            self.plot_canvas.create_line(start_x, low_y, start_x, high_y, fill="#d97904", width=2, tags=("plot_dynamic",))
+            self.plot_canvas.create_line(start_x, high_y, end_x, high_y, fill="#d97904", width=2, tags=("plot_dynamic",))
+            self.plot_canvas.create_line(end_x, high_y, end_x, low_y, fill="#d97904", width=2, tags=("plot_dynamic",))
 
     def draw_sound_trace(self, min_t, max_t, min_v, max_v, left_pad, plot_width, plot_height, x_axis_y):
         visible_width = max(1, int(plot_width))
@@ -4180,7 +4226,7 @@ class BehaviorAcquisitionApp(tk.Tk):
                 t = start_s + idx / fs
                 points.extend([x_for(t), y_for(values[idx])])
             if len(points) >= 4:
-                self.plot_canvas.create_line(*points, fill="#2ca02c", width=1)
+                self.plot_canvas.create_line(*points, fill="#2ca02c", width=1, tags=("plot_dynamic",))
 
     def on_close(self):
         self.stop_live()

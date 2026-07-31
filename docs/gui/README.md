@@ -151,7 +151,7 @@ Examples:
 | Save NWB | `self.save_nwb_placeholder` |
 | Open `.bin` | `self.open_bin` |
 | Results Figure | `self.open_results_window` |
-| Trigger Output | `self.send_output_pulse` |
+| Trigger Reward | `self.send_output_pulse` |
 | Test Sound | `self.play_loaded_sound(use_sequence=False)` |
 | ReGenerate Sequence | `self.generate_sequence` |
 
