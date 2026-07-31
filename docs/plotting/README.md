@@ -45,7 +45,7 @@ self.plot_queue.put(("log", message))
 | `draw_iti_shading(...)` | Shades the current ITI interval. |
 | `draw_trial_state_trace(...)` | Draws trial-state overlay. |
 | `draw_trigger_trace(...)` | Draws reward/trigger pulse overlay. |
-| `draw_sound_trace(...)` | Draws sound output overlay. |
+| `draw_sound_trace(...)` | Draws sound output as a lightweight epoch bar. |
 | `draw_since_last_trial_timer(...)` | Shows elapsed time since last trial when idle. |
 | `_draw_polyline(...)` | Helper for polyline traces. |
 
@@ -71,7 +71,7 @@ Overlay traces are rendered into the second y-axis range. This keeps digital-sty
 `draw_plot()` uses two redraw levels:
 
 - A full redraw clears the canvas and rebuilds axes, tick labels, legends, scale labels, and dynamic traces.
-- A fast redraw deletes only canvas items tagged `plot_dynamic`, then redraws ITI shading, trial state, trigger pulses, sound output, timer text, and signal traces.
+- A fast redraw deletes only canvas items tagged `plot_dynamic`, then redraws ITI shading, trial state, trigger pulses, sound epoch bars, timer text, and signal traces.
 
 The static canvas elements are refreshed periodically and whenever plot geometry or trace labels change. This reduces canvas work during live acquisition while keeping the moving traces responsive.
 
@@ -114,7 +114,7 @@ Sound outputs are recorded by:
 record_sound_output(signal, fs, sound_id=None, start_s=None)
 ```
 
-Both keep full-session lists for export and windowed lists for plotting.
+Both keep full-session lists for export and windowed lists for plotting. The live plot intentionally draws sound as a green onset-to-offset rectangle instead of a waveform so sound timing remains visible without adding heavy canvas work.
 
 ## `.bin` Viewer
 

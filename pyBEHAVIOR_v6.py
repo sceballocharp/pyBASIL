@@ -4200,13 +4200,11 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.plot_canvas.create_line(end_x, high_y, end_x, low_y, fill="#d97904", width=2, tags=("plot_dynamic",))
 
     def draw_sound_trace(self, min_t, max_t, min_v, max_v, left_pad, plot_width, plot_height, x_axis_y):
-        visible_width = max(1, int(plot_width))
-
         def x_for(t):
             return left_pad + (t - min_t) / (max_t - min_t) * plot_width
 
-        def y_for(v):
-            return x_axis_y - (v - min_v) / (max_v - min_v) * plot_height
+        bar_top = max(0, x_axis_y - plot_height + 4)
+        bar_bottom = min(x_axis_y, bar_top + max(4, plot_height * 0.06))
 
         for sound_output in list(self.sound_outputs):
             start_s, fs, values = sound_output[:3]
@@ -4215,18 +4213,19 @@ class BehaviorAcquisitionApp(tk.Tk):
             end_s = start_s + len(values) / fs
             if end_s < min_t or start_s > max_t:
                 continue
-            first_idx = max(0, int((min_t - start_s) * fs))
-            last_idx = min(len(values), int((max_t - start_s) * fs) + 1)
-            if last_idx <= first_idx:
-                continue
-            sample_count = last_idx - first_idx
-            step = max(1, sample_count // visible_width)
-            points = []
-            for idx in range(first_idx, last_idx, step):
-                t = start_s + idx / fs
-                points.extend([x_for(t), y_for(values[idx])])
-            if len(points) >= 4:
-                self.plot_canvas.create_line(*points, fill="#2ca02c", width=1, tags=("plot_dynamic",))
+            start_x = x_for(max(start_s, min_t))
+            end_x = x_for(min(end_s, max_t))
+            if end_x <= start_x:
+                end_x = start_x + 1
+            self.plot_canvas.create_rectangle(
+                start_x,
+                bar_top,
+                end_x,
+                bar_bottom,
+                fill="#2ca02c",
+                outline="",
+                tags=("plot_dynamic",),
+            )
 
     def on_close(self):
         self.stop_live()
