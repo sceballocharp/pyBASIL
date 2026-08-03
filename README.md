@@ -1,50 +1,54 @@
-# pyBEHAVIOR
+# pyBEHAVIOR v6
 
-Python/Tkinter acquisition interface for behavioral experiments. It is designed to run closed-loop mouse behavior sessions with NI-DAQ acquisition, IR-fork or lick-triggered trial detection, calibrated sound playback, reward pulses, live plotting, trial logging, and NWB export.
+`pyBEHAVIOR_v6.py` is a Python/Tkinter acquisition interface for closed-loop behavioral experiments. It runs NI-DAQ acquisition, sound playback, reward outputs, live plotting, trial logging, protocol import, and NWB export from one GUI.
 
-The app is a Python counterpart to the local MATLAB BASIL acquisition tools, while keeping the session workflow visible and editable from a single GUI.
+The current v6 runtime supports four behavior families:
+
+- Classic Go/No-Go
+- Lever
+- DMTS
+- tAC
+- tAC pretraining
 
 ## What It Does
 
-- Runs live analog acquisition from a National Instruments device.
-- Monitors behavioral input channels such as IR-fork, lick, sound copy, and sound TTL.
-- Detects threshold crossings and starts trials in real time.
-- Supports classic Go/No-go and lever-style tasks.
-- Plays sounds from MATLAB `.mat` sound banks.
-- Sends reward or trigger pulses through NI digital output.
-- Records raw IR-fork data to `IRFork.bin`.
-- Logs session parameters to `parameters.dat` and `Parameters.csv`.
-- Logs trial outcomes to `TrialLog.csv`.
-- Saves sessions as NWB files when `pynwb` is installed.
-- Includes simulation mode for testing without hardware.
-- Provides a results figure window for quick online trial summaries.
+- Runs live analog acquisition from a National Instruments device or simulation mode.
+- Selects the active behavior signal by task and trigger type.
+- Starts and scores Classic Go/No-Go, Lever, DMTS, tAC, and tAC pretraining events.
+- Plays sounds from MATLAB `.mat` sound banks or waveform files.
+- Sends left and right reward pulses through NI digital outputs.
+- Provides manual **Left Reward**, **Right Reward**, **100 Left**, and **100 Right** controls.
+- Plots live behavior signals, task-specific lick traces, ITI shading, reward pulses, trial state, and lightweight sound epoch bars.
+- Writes `BehaviorSignal.bin`, `SoundCopy.bin`, `TrialState.bin`, and tAC `LeftLick.bin`/`RightLick.bin` streams when enabled.
+- Logs `parameters.dat`, `Parameters.csv`, and `TrialLog.csv`.
+- Saves NWB files when `pynwb` is installed.
+- Provides a results figure window for online trial summaries.
 
 ## Main Files
 
 | File | Purpose |
 | --- | --- |
-| `pyBEHAVIOR_vXX.py` | Main acquisition GUI and runtime logic. |
+| `pyBEHAVIOR_v6.py` | Main acquisition GUI and runtime logic. |
+| `pyBEHAVIOR_v6_parameters.md` | Compact user-facing parameter reference. |
 | `protocol_generator.py` | GUI tool for creating parameter `.dat` files. |
-| `requirements.txt` | Python dependencies. |
-| `run_pyBEHAVIOR_vXX.bat` | Windows launcher for the main app using the local `.venv`. |
+| `docs/` | Maintainer documentation split by subsystem. |
+| `protocols/` | Example/generated protocol files. |
+| `run_pyBEHAVIOR_v6.bat` | Windows launcher for the main app using the local `.venv`. |
 | `run_protocol_generator.bat` | Windows launcher for the protocol generator. |
-| `setup_python_env.bat` | Creates the local Python virtual environment and installs dependencies. |
-| `setup_valves_IRFork.m` | Reference NI hardware setup used by the Python app defaults. |
-| `BASIL_acquisition_flow.md` | Detailed acquisition-flow notes and signal diagrams. |
+| `requirements.txt` | Python dependencies. |
 
 ## Quick Start
 
 On a Windows acquisition computer:
 
 ```bat
-setup_python_env.bat
-run_pyBEHAVIOR_vXX.bat
+run_pyBEHAVIOR_v6.bat
 ```
 
 Or launch directly:
 
 ```bat
-.venv\Scripts\python.exe pyBEHAVIOR_vXX.py
+.venv\Scripts\python.exe pyBEHAVIOR_v6.py
 ```
 
 To create or edit a protocol file:
@@ -53,76 +57,55 @@ To create or edit a protocol file:
 run_protocol_generator.bat
 ```
 
-## Dependencies
-
-The core dependencies are listed in `requirements.txt`:
-
-- `numpy`
-- `scipy`
-- `nidaqmx`
-- `sounddevice`
-- `pynwb`
-
-The app can still open in a reduced mode if some optional packages are missing. For example, missing `nidaqmx` disables hardware acquisition/output, missing `scipy` disables MATLAB sound loading, and missing `pynwb` disables NWB export.
-
 ## Typical Session Workflow
 
-1. Launch `pyBEHAVIOR_vXX`.
-2. Set the user, mouse, project, save root, NI device, channels, and acquisition rate.
-3. Select or import a protocol `.dat` file if needed.
-4. Choose the NI setup script and sound `.mat` file.
-5. Configure task parameters:
-   - Go/No-go sound IDs, weights, ITI, response window, reward probability, and false-alarm timeout.
-   - Lever threshold, hold time, sound ID, and reward settings.
-6. Use **Generate sequence** to prepare the closed-loop sound sequence.
-7. Press **Start Live** to begin acquisition.
-8. Monitor the live trace, event overlays, trial state, logs, and results window.
-9. Press **Stop** to end acquisition and close NI/file handles.
-10. Use **Save NWB** if the session should be exported to NWB.
-
-## Data Output
-
-Each session is saved under the configured save root using the session metadata and timestamp. A typical session folder contains:
-
-| Output | Description |
-| --- | --- |
-| `IRFork.bin` | Raw binary IR-fork signal samples written as doubles. |
-| `parameters.dat` | Human-readable session and task parameters. |
-| `Parameters.csv` | Parameter blocks for analysis and provenance. |
-| `TrialLog.csv` | Trial-by-trial outcomes, timing, sound IDs, hits, misses, false alarms, and rewards. |
-| `*_Data.nwb` | NWB export containing acquisition and event time series, when enabled. |
+1. Launch `pyBEHAVIOR_v6`.
+2. Set user, mouse, project, save root, NI device, channels, acquisition rate, and output format.
+3. Import a protocol `.dat` file or edit the GUI parameters.
+4. Choose the NI setup script and sound file.
+5. Generate or regenerate the closed-loop sequence.
+6. Press **Start Live**.
+7. Monitor the live traces, event overlays, logs, and results window.
+8. Press **Stop** to close acquisition and file handles.
+9. Use **Save NWB** if the session should be exported after acquisition.
 
 ## Hardware Defaults
 
-The default NI layout follows `setup_valves_IRFork.m`:
+The current rig convention is:
 
 | Signal | Default channel/line | Direction | Role |
 | --- | --- | --- | --- |
-| IRFork | `Dev1/ai6` | Input | Beam-crossing or lever signal. |
-| SoundCopy | `Dev1/ai5` | Input | Recorded sound waveform copy. |
-| TTLtrigsounds | `Dev1/ai1` | Input | Sound TTL/input trace. |
-| TTLReward | `Dev1/port2/line6` | Output | Reward or trigger pulse. |
-| Speaker | `Dev1/ao0` | Output | NI analog sound playback. |
+| Behavior IR/lever | `Dev1/ai6` | Input | IRFork and Lever behavior signal. |
+| SoundCopy | `Dev1/ai5` | Input | Recorded sound-copy channel. |
+| Right/tAC lick | `Dev1/ai1` | Input | tAC right lick channel by default. |
+| Lick/left tAC | `Dev1/ai0` | Input | Lick-trigger signal, tAC left lick channel, and live Lever lick trace. |
+| Left reward | `Dev1/port2/line6` | Output | Default/left reward valve. |
+| Right reward | `Dev1/port2/line7` | Output | Right reward valve for tAC and manual right reward. |
 
-These defaults can be edited in the GUI before starting a session.
+The GUI `Device` field supplies the device name, so `Dev1` can be changed for another NI device.
 
-## Simulation Mode
+## Behavior Highlights
 
-Simulation mode lets the app generate synthetic acquisition data without NI hardware. This is useful for checking the GUI, trigger logic, trial logging, plotting, and NWB export paths before running on the rig.
+- Classic Go/No-Go can score by IRFork time-above-threshold or lick count.
+- Lever can run simple hold mode or optional press-hold-release mode.
+- Lever release mode uses `LeverHoldTime_s +/- LeverReleaseWindow_s` as a bonus zone: releases inside the window send three reward pulses total, late releases still count as HIT with one pulse, and too-early releases are MISS.
+- DMTS presents sample, delay, test, response window, then reward period.
+- tAC starts automatically after ITI and rewards left-correct trials on `port2/line6` and right-correct trials on `port2/line7`.
+- tAC pretraining has no sound and no ITI; a left lick followed by a right lick sends a left reward and logs one HIT event.
 
-## Protocol Generation
+## Documentation
 
-`protocol_generator.py` creates compatible `.dat` parameter files for:
+Detailed maintainer docs live in [docs/README.md](docs/README.md):
 
-- Classic Go/No-go tasks.
-- Lever tasks.
-- Shared session settings such as user, mouse ID, project, sound file, NI setup, acquisition rate, and output format.
-
-Generated protocols can be imported into `pyBASIL_v2` with **Import parameters**.
+- acquisition and channels
+- parameter import/export
+- behavior rules
+- plotting
+- GUI layout
+- saving data and NWB export
 
 ## Notes
 
-- Use `BASIL_acquisition_flow.md` for a more detailed view of the acquisition loop and signal routing.
 - Keep large raw data folders out of version control unless they are deliberate examples.
 - Check hardware channel names before running on a new rig.
 - If the app opens but hardware controls do not work, verify the NI-DAQmx driver, the `nidaqmx` Python package, and the selected device name.

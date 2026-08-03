@@ -8,8 +8,9 @@ This document describes the `parameters.dat` fields used by the current protocol
 - `Lever`
 - `DMTS`
 - `tAC`
+- `tACPretraining`
 
-`pyBEHAVIOR_v6.py` currently imports and runs Classic Go/No-Go, Lever, DMTS, and tAC. DMTS can generate match and non-match trial types, with random sample/test sounds from a sound ID list such as `1:16`. tAC is a two-alternative choice task with one sound followed by left/right lick choice.
+`pyBEHAVIOR_v6.py` currently imports and runs Classic Go/No-Go, Lever, DMTS, tAC, and tAC pretraining. DMTS can generate match and non-match trial types, with random sample/test sounds from a sound ID list such as `1:16`. tAC is a two-alternative choice task with one sound followed by left/right lick choice. tAC pretraining is a shaping mode with no sound and no ITI, where a left lick followed by a right lick triggers a left reward.
 
 ## Common Parameters
 
@@ -28,6 +29,8 @@ These are shared by every protocol tab.
 | `OuputformatDropDown` | Output format | Output format selector. Note the historical misspelling is preserved for compatibility. |
 
 The GUI `Channels` field should include `ai6,ai5,ai1,ai0` for the current rig layout. Runtime behavior signal selection is trigger-dependent: IRFork and Lever use `ai6`; Lick uses `ai0`; tAC defaults to left `ai0` and right `ai1`; SoundCopy uses `ai5`. During Lever tasks, `ai0` is also shown as a live lick trace, but lever trial start/reward logic still uses `ai6`. The selected behavior signal is written to `BehaviorSignal.bin` and recorded as `BehaviorSignalChannel` in session metadata.
+
+Reward outputs use two digital lines. Left/default rewards use `Device/port2/line6`; right rewards use `Device/port2/line7`. The GUI has manual **Left Reward** and **Right Reward** buttons for single pulses, plus **100 Left** and **100 Right** buttons for reward-train testing.
 
 ## Classic Go/No-Go
 
@@ -221,6 +224,34 @@ tAC reward outputs:
 
 The actual device name comes from the GUI `Device` field, so `Dev1` changes if that field changes. Session metadata stores `LeftRewardLine=port2/line6` and `RightRewardLine=port2/line7`.
 
+## tAC Pretraining
+
+Saved with:
+
+```text
+TaskType=tACPretraining
+```
+
+tAC pretraining is an exploration/shaping mode for tAC. It uses the same left/right lick channels and thresholds as tAC, but does not play sounds, does not use ITI, and does not use a response window.
+
+| Parameter | GUI label | Meaning |
+| --- | --- | --- |
+| `TACLeftChannel` | Left lick channel | Channel for the first lick in the required sequence. Default `ai0`. |
+| `TACRightChannel` | Right lick channel | Channel for the second lick in the required sequence. Default `ai1`. |
+| `TACLeftThreshold` | Left threshold V | Voltage threshold for detecting left upward crossings. |
+| `TACRightThreshold` | Right threshold V | Voltage threshold for detecting right upward crossings. |
+| `Rewardduration_ms` | Reward duration ms | Duration of the left reward pulse. |
+| `RewardGo` | RewardGo Prob | Reward probability for completed left-then-right sequences. Default `1`. |
+| `MaxTrials` | Max rewards | Maximum number of rewarded left-then-right events. `0` means unlimited. |
+
+Runtime rule:
+
+```text
+left lick -> right lick -> left reward on Device/port2/line6
+```
+
+Each completed sequence is logged as a `tAC-pretraining` HIT event in `TrialLog.csv`. Right licks before a left lick do not reward; the task keeps waiting for the next left lick.
+
 ## Import Compatibility
 
 `pyBEHAVIOR_v6.py` still accepts several legacy aliases:
@@ -246,3 +277,4 @@ Trial-specific fields such as `trial`, `timestamp`, `sound_id`, `trigger_time_s`
 | Lever | Yes | Yes | Implemented. |
 | DMTS | Yes | Yes | Initial sample-delay-test structure implemented with same-ID matching and optional randomized same-ID sound lists. |
 | tAC | Yes | Yes | Implemented as automatic-start left/right lick choice with no fork/IR requirement. |
+| tACPretraining | Yes | Yes | Implemented as left-then-right lick shaping with no sound and no ITI. |

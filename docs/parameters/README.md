@@ -31,7 +31,7 @@ The compact user-facing parameter table is in `pyBEHAVIOR_v6_parameters.md`.
 | Object or function | Role |
 | --- | --- |
 | `Parameter` | Dataclass describing one GUI field. |
-| `PARAMETERS` | Full field registry for Classic Go/No-Go, Lever, DMTS, and shared session fields. |
+| `PARAMETERS` | Full field registry for Classic Go/No-Go, Lever, DMTS, tAC, and shared session fields. |
 | `BEHAVIOR_TABS` | Which sections appear for each protocol family. |
 | `load_dat()` | Imports an existing `.dat` into generator variables, including behavior-specific aliases. |
 | `validate()` | Checks numeric types and probability/range constraints. |
@@ -86,8 +86,10 @@ Runtime `TaskType` determines which behavior path is active:
 - `ClassicGoNoGo`
 - `Lever`
 - `DMTS`
+- `tAC`
+- `tACPretraining`
 
-The protocol generator uses behavior-specific UI keys such as `LeverRewardGo` and `DMTSRewardProb`, then writes canonical runtime keys such as `RewardGo` and `RewardProb`.
+The protocol generator uses behavior-specific UI keys such as `LeverRewardGo`, `DMTSRewardProb`, and `TACPreRewardGo`, then writes canonical runtime keys such as `RewardGo` and `RewardProb`.
 
 ## Pitfalls
 

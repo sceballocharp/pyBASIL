@@ -34,11 +34,11 @@ Current top-level sections:
 
 | Section | Frame title | Main responsibility |
 | --- | --- | --- |
-| Left column, top | `Control And Files` | Start/stop, import parameters, NWB save, `.bin` viewer, simulation, file selectors, reward train, stim generator. |
+| Left column, top | `Control And Files` | Start/stop, import parameters, NWB save, `.bin` viewer, simulation, file selectors, left/right reward trains, stim generator. |
 | Left column | `Session` | User, mouse, project, output format, save root. |
 | Left column | `Acquisition` | NI device, channel list, acquisition rate, plotting window, callback size, and scaling. Terminal configuration is kept internal. |
-| Left column | `Trigger And Sound` | Trigger source, binary writing, output pulse, sound playback, threshold, pulse duration, sound ID/level, task-specific checkboxes. |
-| Left column, center | `Live Acquisition` | Live plot canvas. For Lever, this draws the `ai6` lever/IR fork signal plus the `ai0` lick trace. For tAC, this draws separate left/right lick traces from `TACLeftChannel` and `TACRightChannel`. |
+| Left column | `Trigger And Sound` | Trigger source, binary writing, automatic reward toggle, manual left/right reward buttons, sound playback, threshold, pulse duration, sound ID/level, task-specific checkboxes. |
+| Left column, center | `Live Acquisition` | Live plot canvas. For Lever, this draws the `ai6` lever/IR fork signal plus the `ai0` lick trace. For tAC and tAC pretraining, this draws separate left/right lick traces from `TACLeftChannel` and `TACRightChannel`. |
 | Left column, bottom | `Output` | Text log. |
 | Right parameter column, top | `Closed Loop Sequence` | Sequence length, values, weights, seed, max trials, sequence status. |
 | Right parameter column, bottom | `Trial Structure` | Task timing, response criteria, reward settings, task-specific fields. |
@@ -151,7 +151,10 @@ Examples:
 | Save NWB | `self.save_nwb_placeholder` |
 | Open `.bin` | `self.open_bin` |
 | Results Figure | `self.open_results_window` |
-| Trigger Reward | `self.send_output_pulse` |
+| 100 Left | `self.toggle_reward_train("left")` |
+| 100 Right | `self.toggle_reward_train("right")` |
+| Left Reward | `self.send_output_pulse(reward_side="left")` |
+| Right Reward | `self.send_output_pulse(reward_side="right")` |
 | Test Sound | `self.play_loaded_sound(use_sequence=False)` |
 | ReGenerate Sequence | `self.generate_sequence` |
 
@@ -170,7 +173,8 @@ For layout-only edits, keep these command bindings unchanged.
 - `Require release` checkbox visible for lever.
 - `Random DMTS sounds` checkbox visible for DMTS.
 - Sample/test/fork grace/sound IDs visible for DMTS.
-- tAC left/right channel, threshold, and choice-lick fields visible for `TaskType=tAC`.
+- tAC left/right channel and threshold fields visible for `TaskType=tAC` and `TaskType=tACPretraining`.
+- tAC choice-lick count is used by normal tAC; tAC pretraining rewards a fixed left-then-right sequence.
 
 When adding a task-specific control, add it to this visibility function.
 
@@ -245,14 +249,14 @@ Before finishing a GUI restructuring change:
 1. Confirm no behavior function was edited unless intentionally requested.
 2. Confirm existing Tk variable names are unchanged.
 3. Confirm button `command=` bindings are unchanged.
-4. Confirm task-specific visibility still works for Classic Go/No-Go, Lever, and DMTS.
+4. Confirm task-specific visibility still works for Classic Go/No-Go, Lever, DMTS, tAC, and tAC pretraining.
 5. Run:
 
 ```powershell
 .venv\Scripts\python.exe -m py_compile pyBEHAVIOR_v6.py
 ```
 
-6. If possible on the rig computer, open the GUI and switch/import all three protocol families to check layout.
+6. If possible on the rig computer, open the GUI and switch/import all four protocol families to check layout.
 
 ## Common Pitfalls
 

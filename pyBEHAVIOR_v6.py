@@ -157,6 +157,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
+        self.tac_pretraining_step = "left"
+        self.tac_pretraining_left_time_s = None
+        self.tac_pretraining_left_count = 0
+        self.tac_pretraining_right_count = 0
         self.sim_next_pulse_start_s = 0.0
         self.sim_pulse_end_s = -1.0
         self.results_window = None
@@ -170,6 +174,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.reward_train_remaining = 0
         self.reward_train_total = 0
         self.reward_train_interval_ms = 1000
+        self.reward_train_side = "left"
 
         self._build_ui()
         self.generate_sequence(log=False)
@@ -227,8 +232,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         ttk.Button(run_setup_left, text="stim_generator", command=self.open_stim_generator_window).grid(row=2, column=3, columnspan=2, padx=4, pady=4, sticky="ew")
         self._file_row(run_setup_left, 2, "NI script", self.ni_script, self.choose_ni_script)
         self._file_row(run_setup_left, 3, "Sound .mat", self.sound_file, self.choose_sound_file)
-        self.reward_train_button = ttk.Button(run_setup_left, text="100 Rewards", command=self.toggle_reward_train)
-        self.reward_train_button.grid(row=3, column=3, columnspan=2, padx=4, pady=4, sticky="ew")
+        self.reward_train_left_button = ttk.Button(run_setup_left, text="100 Left", command=lambda: self.toggle_reward_train("left"))
+        self.reward_train_left_button.grid(row=3, column=3, padx=4, pady=4, sticky="ew")
+        self.reward_train_right_button = ttk.Button(run_setup_left, text="100 Right", command=lambda: self.toggle_reward_train("right"))
+        self.reward_train_right_button.grid(row=3, column=4, padx=4, pady=4, sticky="ew")
 
         session = ttk.LabelFrame(root, text="Session")
         session.grid(row=1, column=0, sticky="ew", pady=(0, 6))
@@ -288,10 +295,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         ttk.Combobox(trig, textvariable=self.trigger_type, values=("IRFork", "Lick", "None"), width=9).grid(row=0, column=1)
         ttk.Checkbutton(trig, text="Write BehaviorSignal.bin", variable=self.write_behavior_signal_bin).grid(row=0, column=2, padx=8)
         ttk.Checkbutton(trig, text="Trigger reward", variable=self.trigger_output_on_crossing).grid(row=0, column=3, padx=8)
-        ttk.Button(trig, text="Trigger Reward", command=self.send_output_pulse).grid(row=0, column=4, padx=8)
-        ttk.Checkbutton(trig, text="Play sound", variable=self.play_sound_on_crossing).grid(row=0, column=5, padx=8)
-        self._entry(trig, 6, "Threshold V", self.threshold_v, width=6)
-        self._entry(trig, 8, "Pulse ms", self.pulse_ms, width=6)
+        ttk.Button(trig, text="Left Reward", command=lambda: self.send_output_pulse(reward_side="left")).grid(row=0, column=4, padx=4)
+        ttk.Button(trig, text="Right Reward", command=lambda: self.send_output_pulse(reward_side="right")).grid(row=0, column=5, padx=4)
+        ttk.Checkbutton(trig, text="Play sound", variable=self.play_sound_on_crossing).grid(row=0, column=6, padx=8)
+        self._entry(trig, 7, "Threshold V", self.threshold_v, width=6)
+        self._entry(trig, 9, "Pulse ms", self.pulse_ms, width=6)
         self._entry(trig, 0, "Sound id", self.sound_id, width=6, row=1)
         self._entry(trig, 2, "Level", self.sound_level, width=6, row=1)
         ttk.Button(trig, text="Test Sound", command=lambda: self.play_loaded_sound(use_sequence=False)).grid(row=1, column=4, padx=8, pady=4)
@@ -447,12 +455,13 @@ class BehaviorAcquisitionApp(tk.Tk):
         is_lever = self.is_lever_task()
         is_dmts = self.is_dmts_task()
         is_tac = self.is_tac_task()
+        is_tac_family = self.is_tac_family_task()
         is_lick = self.is_lick_trigger()
-        self.set_widget_pair_visible(self.sound_delay_widgets, not is_lever and not is_dmts, row=5, col=0)
+        self.set_widget_pair_visible(self.sound_delay_widgets, not is_lever and not is_dmts and not self.is_tac_pretraining_task(), row=5, col=0)
         self.set_widget_pair_visible(self.delay_widgets, is_dmts, row=5, col=0)
-        self.set_widget_pair_visible(self.min_lick_count_widgets, not is_lever and not is_tac, row=6, col=0)
-        self.set_widget_pair_visible(self.lick_threshold_widgets, not is_lever and not is_tac and is_lick, row=6, col=2)
-        self.set_widget_pair_visible(self.hit_threshold_widgets, not is_lever and not is_tac and not is_lick, row=6, col=2)
+        self.set_widget_pair_visible(self.min_lick_count_widgets, not is_lever and not is_tac_family, row=6, col=0)
+        self.set_widget_pair_visible(self.lick_threshold_widgets, not is_lever and not is_tac_family and is_lick, row=6, col=2)
+        self.set_widget_pair_visible(self.hit_threshold_widgets, not is_lever and not is_tac_family and not is_lick, row=6, col=2)
         self.set_widget_pair_visible(self.lever_hold_widgets, is_lever, row=7, col=0)
         self.set_widget_pair_visible(self.lever_start_debounce_widgets, is_lever, row=7, col=2)
         self.set_widget_pair_visible(self.lever_release_window_widgets, is_lever, row=8, col=0)
@@ -469,10 +478,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.set_widget_pair_visible(self.test_sound_widgets, is_dmts, row=9, col=2)
         self.set_widget_pair_visible(self.dmts_fork_grace_widgets, is_dmts, row=10, col=0)
         self.set_widget_pair_visible(self.dmts_sound_ids_widgets, is_dmts, row=10, col=2)
-        self.set_widget_pair_visible(self.tac_left_channel_widgets, is_tac, row=11, col=0)
-        self.set_widget_pair_visible(self.tac_right_channel_widgets, is_tac, row=11, col=2)
-        self.set_widget_pair_visible(self.tac_left_threshold_widgets, is_tac, row=12, col=0)
-        self.set_widget_pair_visible(self.tac_right_threshold_widgets, is_tac, row=12, col=2)
+        self.set_widget_pair_visible(self.tac_left_channel_widgets, is_tac_family, row=11, col=0)
+        self.set_widget_pair_visible(self.tac_right_channel_widgets, is_tac_family, row=11, col=2)
+        self.set_widget_pair_visible(self.tac_left_threshold_widgets, is_tac_family, row=12, col=0)
+        self.set_widget_pair_visible(self.tac_right_threshold_widgets, is_tac_family, row=12, col=2)
         self.set_widget_pair_visible(self.tac_min_lick_count_widgets, is_tac, row=13, col=0)
 
     def set_widget_pair_visible(self, widgets, visible, row, col):
@@ -488,13 +497,18 @@ class BehaviorAcquisitionApp(tk.Tk):
         if not hasattr(self, "behavior_channel_var"):
             return
         channel = self.get_behavior_signal_channel_name()
-        if self.is_tac_task():
+        if self.is_tac_family_task():
             self.behavior_channel_var.set(
                 f"Behavior signal: left {self.get_tac_left_channel_name()}, right {self.get_tac_right_channel_name()}; SoundCopy ai5"
             )
         else:
             self.behavior_channel_var.set(f"Behavior signal: {channel} (IRFork/Lever ai6, Lick ai0; SoundCopy ai5)")
-        if self.is_tac_task():
+        if self.is_tac_pretraining_task():
+            rule = (
+                f"tAC pretraining: left lick on {self.get_tac_left_channel_name()} then "
+                f"right lick on {self.get_tac_right_channel_name()} gives left reward; no sound or ITI"
+            )
+        elif self.is_tac_task():
             values = self._parse_number_list(self.sequence_values.get(), default=[1, 10], cast=int)
             left_sound = values[0] if values else 1
             right_sound = values[1] if len(values) > 1 else left_sound
@@ -813,6 +827,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "TACLeftThreshold": self.tac_left_threshold,
             "TACRightThreshold": self.tac_right_threshold,
             "TACMinlickcount": self.tac_min_lick_count,
+            "PlaySound": self.play_sound_on_crossing,
+            "TriggerOutput": self.trigger_output_on_crossing,
         }
         applied = 0
         for key, var in mapping.items():
@@ -851,6 +867,10 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.trigger_type.set("Lick")
             self.generate_sequence(log=False)
             self.update_trial_duration()
+        if self.is_tac_pretraining_task():
+            self.trigger_type.set("Lick")
+            self.play_sound_on_crossing.set(False)
+            self.update_trial_duration()
         return applied
 
     def parse_float(self, var, default):
@@ -886,7 +906,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         return None
 
     def get_behavior_signal_channel_name(self):
-        if self.is_tac_task():
+        if self.is_tac_family_task():
             return self.get_tac_left_channel_name()
         if self.is_lick_trigger() and not self.is_lever_task():
             return "ai0"
@@ -1024,6 +1044,12 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
+        self.tac_pretraining_step = "left"
+        self.tac_pretraining_left_time_s = None
+        self.tac_pretraining_step = "left"
+        self.tac_pretraining_left_time_s = None
+        self.tac_pretraining_left_count = 0
+        self.tac_pretraining_right_count = 0
         self.sim_next_pulse_start_s = 0.0
         self.sim_pulse_end_s = -1.0
         self.current_trial_var.set("0")
@@ -1038,7 +1064,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.log("Simulation mode enabled: generated IR crossings will be used.")
         else:
             self.setup_tasks()
-        if self.play_sound_on_crossing.get():
+        if self.play_sound_on_crossing.get() and not self.is_tac_pretraining_task():
             self.load_sound_file()
         self.acq_thread = threading.Thread(target=self.acquisition_loop, daemon=True)
         self.acq_thread.start()
@@ -1181,7 +1207,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         if self.trial_state_file is not None:
             trial_state_values = self.get_trial_state_values(times)
             self.trial_state_file.write(struct.pack(f"{len(trial_state_values)}d", *trial_state_values))
-        if self.is_tac_task():
+        if self.is_tac_family_task():
             plot_payload = (
                 list(self.time_buffer),
                 list(self.tac_left_buffer),
@@ -1243,6 +1269,11 @@ class BehaviorAcquisitionApp(tk.Tk):
                 continue
 
             self.process_pending_go_reward(sample_time_s)
+
+            if self.is_tac_pretraining_task():
+                row = rows[sample_index] if rows is not None and sample_index < len(rows) else []
+                self.check_tac_pretraining_sample(sample_time_s, row)
+                continue
 
             if self.is_tac_task():
                 row = rows[sample_index] if rows is not None and sample_index < len(rows) else []
@@ -1350,12 +1381,12 @@ class BehaviorAcquisitionApp(tk.Tk):
         if not self.exp_folder:
             self.prepare_session_folder()
         self.behavior_signal_file = open(os.path.join(self.exp_folder, "BehaviorSignal.bin"), "wb")
-        if self.is_tac_task():
+        if self.is_tac_family_task():
             self.left_lick_file = open(os.path.join(self.exp_folder, "LeftLick.bin"), "wb")
             self.right_lick_file = open(os.path.join(self.exp_folder, "RightLick.bin"), "wb")
         self.soundcopy_file = open(os.path.join(self.exp_folder, "SoundCopy.bin"), "wb")
         self.trial_state_file = open(os.path.join(self.exp_folder, "TrialState.bin"), "wb")
-        if self.is_tac_task():
+        if self.is_tac_family_task():
             self.log(f"Writing BehaviorSignal.bin, LeftLick.bin, RightLick.bin, SoundCopy.bin, and TrialState.bin: {self.exp_folder}")
         else:
             self.log(f"Writing BehaviorSignal.bin, SoundCopy.bin, and TrialState.bin: {self.exp_folder}")
@@ -1424,7 +1455,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "RewardGo": self.reward_go.get(),
             "RewardProb": self.reward_go.get(),
             "LeftRewardLine": "port2/line6",
-            "RightRewardLine": "port2/line7" if self.is_tac_task() else "",
+            "RightRewardLine": "port2/line7" if self.is_tac_family_task() else "",
             "Pavlov": self.pavlov.get(),
             "PunishNoGoFA": self.punish_no_go_fa.get(),
             "Minlickcount": self.min_lick_count.get(),
@@ -1434,8 +1465,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             "TACLeftThreshold": self.tac_left_threshold.get(),
             "TACRightThreshold": self.tac_right_threshold.get(),
             "TACMinlickcount": self.tac_min_lick_count.get(),
-            "TACLeftBinary": "LeftLick.bin" if self.is_tac_task() else "",
-            "TACRightBinary": "RightLick.bin" if self.is_tac_task() else "",
+            "TACLeftBinary": "LeftLick.bin" if self.is_tac_family_task() else "",
+            "TACRightBinary": "RightLick.bin" if self.is_tac_family_task() else "",
             "LeverThreshold": self.threshold_v.get(),
             "LeverHoldTime_s": self.lever_hold_time_s.get(),
             "LeverStartDebounce_s": self.lever_start_debounce_s.get(),
@@ -1751,11 +1782,18 @@ class BehaviorAcquisitionApp(tk.Tk):
         value = self.task_type.get().strip().lower()
         return value in {"tac", "2ac", "twoalternatechoice", "twoalternativechoice"}
 
+    def is_tac_pretraining_task(self):
+        value = self.task_type.get().strip().lower()
+        return value in {"tacpretraining", "tac_pretraining", "tac-pretraining", "tacshaping"}
+
+    def is_tac_family_task(self):
+        return self.is_tac_task() or self.is_tac_pretraining_task()
+
     def is_lick_trigger(self):
         return self.trigger_type.get().strip().lower() == "lick"
 
     def get_current_trigger_threshold(self):
-        if self.is_tac_task():
+        if self.is_tac_family_task():
             return self.get_tac_left_threshold()
         if self.is_lick_trigger():
             return self.parse_float(self.lick_threshold, self.parse_float(self.threshold_v, 1))
@@ -1786,6 +1824,72 @@ class BehaviorAcquisitionApp(tk.Tk):
         if len(values) > 1 and int(sound_id) == int(values[1]):
             return "right"
         return "left"
+
+    def check_tac_pretraining_sample(self, sample_time_s, row_values):
+        left_value = self.get_row_channel_value(row_values, self.get_tac_left_channel_name(), 0.0)
+        right_value = self.get_row_channel_value(row_values, self.get_tac_right_channel_name(), 0.0)
+        left_high = left_value >= self.get_tac_left_threshold()
+        right_high = right_value >= self.get_tac_right_threshold()
+        left_crossed_up = left_high and not self.left_lick_was_high
+        right_crossed_up = right_high and not self.right_lick_was_high
+        self.left_lick_was_high = left_high
+        self.right_lick_was_high = right_high
+
+        max_trials = max(0, self.parse_int(self.max_trials, 0))
+        if max_trials and self.trial_index >= max_trials:
+            return
+
+        if left_crossed_up:
+            self.tac_pretraining_left_count += 1
+            self.tac_pretraining_step = "right"
+            self.tac_pretraining_left_time_s = sample_time_s
+            self.plot_queue.put(("log", "tAC pretraining left lick registered; waiting for right lick."))
+
+        if right_crossed_up:
+            self.tac_pretraining_right_count += 1
+            if self.tac_pretraining_step == "right" and self.tac_pretraining_left_time_s is not None:
+                self.finish_tac_pretraining_sequence(self.tac_pretraining_left_time_s, sample_time_s)
+            else:
+                self.plot_queue.put(("log", "tAC pretraining right lick registered before left; waiting for left lick."))
+
+    def finish_tac_pretraining_sequence(self, left_time_s, right_time_s):
+        threshold = self.get_tac_left_threshold()
+        sound_id = 0
+        self.create_trial(sound_id, left_time_s, threshold, 0.0, trial_type_id=1, trial_type="tAC-pretraining")
+        row = self.trial_rows[-1]
+        row["trial_end_s"] = f"{right_time_s:.6f}"
+        row["crossing_duration_s"] = f"{max(0.0, right_time_s - left_time_s):.6f}"
+        row["HIT"] = 1
+        row["MISS"] = 0
+        row["CR"] = 0
+        row["FA"] = 0
+        row["ResultType"] = "HIT"
+        row["lick_count"] = 2
+        row["left_lick_count"] = 1
+        row["right_lick_count"] = 1
+        row["correct_side"] = "left-reward"
+        row["choice_side"] = "left-then-right"
+        self.last_trigger_time = left_time_s
+        self.last_trial_end_time_s = right_time_s
+        self.next_trial_allowed_time_s = right_time_s
+        self.start_trial_state_interval(left_time_s)
+        self.end_trial_state_interval(right_time_s)
+        reward_probability = min(1.0, max(0.0, self.parse_float(self.reward_go, 1.0)))
+        reward_draw = random.random()
+        reward_sent = reward_draw <= reward_probability and self.trigger_output_on_crossing.get()
+        if reward_sent:
+            self.send_output_pulse(from_worker=True, start_s=right_time_s, reward_side="left")
+        self.write_trial_log()
+        self.write_parameters_csv()
+        self.store_trial_crossing_duration(row)
+        self.plot_queue.put(("results", None))
+        self.plot_queue.put((
+            "log",
+            f"tAC pretraining reward {row['trial']}: left lick then right lick, "
+            f"left reward {'sent' if reward_sent else 'skipped'}, p={reward_probability:.3f}, draw={reward_draw:.3f}.",
+        ))
+        self.tac_pretraining_step = "left"
+        self.tac_pretraining_left_time_s = None
 
     def check_tac_sample(self, sample_time_s, row_values):
         left_value = self.get_row_channel_value(row_values, self.get_tac_left_channel_name(), 0.0)
@@ -2733,20 +2837,24 @@ class BehaviorAcquisitionApp(tk.Tk):
         else:
             self.log(msg)
 
-    def toggle_reward_train(self):
+    def toggle_reward_train(self, reward_side="left"):
         if self.reward_train_after_id is not None or self.reward_train_remaining > 0:
             self.cancel_reward_train(log_message=True)
             return
-        self.start_reward_train(count=100, interval_ms=1000)
+        self.start_reward_train(count=100, interval_ms=1000, reward_side=reward_side)
 
-    def start_reward_train(self, count=100, interval_ms=5000):
+    def start_reward_train(self, count=100, interval_ms=5000, reward_side="left"):
         self.reward_train_total = max(0, int(count))
         self.reward_train_remaining = self.reward_train_total
         self.reward_train_interval_ms = max(1, int(interval_ms))
+        self.reward_train_side = "right" if reward_side == "right" else "left"
         if self.reward_train_remaining <= 0:
             return
-        self.reward_train_button.configure(text="Cancel 100 Rewards")
-        self.log(f"Starting {self.reward_train_total} rewards, one every {self.reward_train_interval_ms / 1000:g} s.")
+        self.update_reward_train_buttons(active=True)
+        self.log(
+            f"Starting {self.reward_train_total} {self.reward_train_side} rewards, "
+            f"one every {self.reward_train_interval_ms / 1000:g} s."
+        )
         self.run_reward_train_step()
 
     def run_reward_train_step(self):
@@ -2755,8 +2863,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.finish_reward_train()
             return
         delivered_index = self.reward_train_total - self.reward_train_remaining + 1
-        self.log(f"Reward train pulse {delivered_index}/{self.reward_train_total}.")
-        self.send_output_pulse()
+        self.log(f"{self.reward_train_side.capitalize()} reward train pulse {delivered_index}/{self.reward_train_total}.")
+        self.send_output_pulse(reward_side=self.reward_train_side)
         self.reward_train_remaining -= 1
         if self.reward_train_remaining <= 0:
             self.finish_reward_train()
@@ -2767,7 +2875,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.reward_train_after_id = None
         self.reward_train_remaining = 0
         self.reward_train_total = 0
-        self.reward_train_button.configure(text="100 Rewards")
+        self.update_reward_train_buttons(active=False)
         self.log("Reward train finished.")
 
     def cancel_reward_train(self, log_message=True):
@@ -2780,10 +2888,22 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.reward_train_after_id = None
         self.reward_train_remaining = 0
         self.reward_train_total = 0
-        if hasattr(self, "reward_train_button"):
-            self.reward_train_button.configure(text="100 Rewards")
+        self.update_reward_train_buttons(active=False)
         if log_message and was_active:
             self.log("Reward train cancelled.")
+
+    def update_reward_train_buttons(self, active=False):
+        if not hasattr(self, "reward_train_left_button") or not hasattr(self, "reward_train_right_button"):
+            return
+        if active and self.reward_train_side == "left":
+            self.reward_train_left_button.configure(text="Cancel Left", state=tk.NORMAL)
+            self.reward_train_right_button.configure(text="100 Right", state=tk.DISABLED)
+        elif active and self.reward_train_side == "right":
+            self.reward_train_left_button.configure(text="100 Left", state=tk.DISABLED)
+            self.reward_train_right_button.configure(text="Cancel Right", state=tk.NORMAL)
+        else:
+            self.reward_train_left_button.configure(text="100 Left", state=tk.NORMAL)
+            self.reward_train_right_button.configure(text="100 Right", state=tk.NORMAL)
 
     def record_trigger_pulse(self, pulse_s, start_s=None):
         if self.acq_start_perf is None:
@@ -3661,7 +3781,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         nogo_total = counts["CR"] + counts["FA"]
         hit_rate = counts["HIT"] / go_total if go_total else 0.0
         cr_rate = counts["CR"] / nogo_total if nogo_total else 0.0
-        if self.is_tac_task():
+        if self.is_tac_family_task():
             choice_total = counts["HIT"] + counts["MISS"] + counts["FA"]
             choice_rate = counts["HIT"] / choice_total if choice_total else 0.0
             title = (

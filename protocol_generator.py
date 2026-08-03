@@ -106,6 +106,14 @@ PARAMETERS = [
     Parameter("TACMinlickcount", "Choice lick count", "1", "TACOutcome", "int"),
     Parameter("TACLeftThreshold", "Left threshold V", "1", "TACOutcome", "float"),
     Parameter("TACRightThreshold", "Right threshold V", "1", "TACOutcome", "float"),
+    Parameter("TACPreTaskType", "Task type", "tACPretraining", "TACPre"),
+    Parameter("TACPreMaxTrials", "Max rewards", "0", "TACPre", "int"),
+    Parameter("TACPreLeftChannel", "Left lick channel", "ai0", "TACPre", "text"),
+    Parameter("TACPreRightChannel", "Right lick channel", "ai1", "TACPre", "text"),
+    Parameter("TACPreLeftThreshold", "Left threshold V", "1", "TACPre", "float"),
+    Parameter("TACPreRightThreshold", "Right threshold V", "1", "TACPre", "float"),
+    Parameter("TACPreRewardduration_ms", "Reward duration ms", "40", "TACPre", "float"),
+    Parameter("TACPreRewardGo", "RewardGo Prob", "1", "TACPre", "float"),
 ]
 
 COMMON_SECTIONS = ("Session",)
@@ -114,6 +122,7 @@ BEHAVIOR_TABS = [
     ("Lever", ("Lever", "LeverTiming", "LeverOutcome")),
     ("DMTS", ("DMTS", "DMTSTiming", "DMTSOutcome")),
     ("tAC", ("TAC", "TACTiming", "TACOutcome")),
+    ("tAC Pretraining", ("TACPre",)),
 ]
 SECTION_LABELS = {
     "GoNoGo": "Task",
@@ -128,6 +137,7 @@ SECTION_LABELS = {
     "TAC": "Task",
     "TACTiming": "Timing",
     "TACOutcome": "Outcome",
+    "TACPre": "Pretraining",
 }
 
 
@@ -297,6 +307,8 @@ class ProtocolGenerator(tk.Tk):
             self.current_path.set(os.path.join(APP_DIR, "protocols", "dmts_parameters.dat"))
         elif self.active_behavior() == "tAC":
             self.current_path.set(os.path.join(APP_DIR, "protocols", "tac_parameters.dat"))
+        elif self.active_behavior() == "tAC Pretraining":
+            self.current_path.set(os.path.join(APP_DIR, "protocols", "tac_pretraining_parameters.dat"))
         else:
             self.current_path.set(os.path.join(APP_DIR, "protocols", "go_nogo_parameters.dat"))
         self.schedule_redraw()
@@ -387,10 +399,11 @@ class ProtocolGenerator(tk.Tk):
         values = read_dat(path)
         is_lever = values.get("TaskType") == "Lever" or "LeverThreshold" in values
         is_dmts = values.get("TaskType") == "DMTS" or "DMTSDelay_s" in values
+        is_tac_pre = values.get("TaskType") in {"tACPretraining", "tAC-pretraining", "tAC_pretraining"}
         is_tac = values.get("TaskType") == "tAC" or "TACLeftChannel" in values
-        self.notebook.select(3 if is_tac else 2 if is_dmts else 1 if is_lever else 0)
+        self.notebook.select(4 if is_tac_pre else 3 if is_tac else 2 if is_dmts else 1 if is_lever else 0)
         for key, value in values.items():
-            target = self.alias_for_loaded_key(key, is_lever, is_dmts, is_tac)
+            target = self.alias_for_loaded_key(key, is_lever, is_dmts, is_tac, is_tac_pre)
             if target in self.variables:
                 self.variables[target].set(value)
         self.sync_trial_duration()
@@ -399,7 +412,19 @@ class ProtocolGenerator(tk.Tk):
         self.current_path.set(path)
         self.status_var.set(f"Loaded {os.path.basename(path)}.")
 
-    def alias_for_loaded_key(self, key, is_lever, is_dmts=False, is_tac=False):
+    def alias_for_loaded_key(self, key, is_lever, is_dmts=False, is_tac=False, is_tac_pre=False):
+        if is_tac_pre:
+            return {
+                "TaskType": "TACPreTaskType",
+                "MaxTrials": "TACPreMaxTrials",
+                "Rewardduration_ms": "TACPreRewardduration_ms",
+                "RewardGo": "TACPreRewardGo",
+                "RewardGoProb": "TACPreRewardGo",
+                "TACLeftChannel": "TACPreLeftChannel",
+                "TACRightChannel": "TACPreRightChannel",
+                "TACLeftThreshold": "TACPreLeftThreshold",
+                "TACRightThreshold": "TACPreRightThreshold",
+            }.get(key, key)
         if is_tac:
             return {
                 "TaskType": "TACTaskType",
@@ -579,6 +604,18 @@ class ProtocolGenerator(tk.Tk):
             if self.parse_float("TACRightThreshold", 0) <= 0:
                 errors.append("Right threshold must be greater than 0.")
             return errors
+        if self.active_behavior() == "tAC Pretraining":
+            if self.parse_int("TACPreMaxTrials", 0) < 0:
+                errors.append("Max rewards must be positive or 0.")
+            if self.parse_float("TACPreRewardduration_ms", -1) < 0:
+                errors.append("Reward duration ms must be positive or 0.")
+            if not 0 <= self.parse_float("TACPreRewardGo", -1) <= 1:
+                errors.append("RewardGo Prob must be between 0 and 1.")
+            if self.parse_float("TACPreLeftThreshold", 0) <= 0:
+                errors.append("Left threshold must be greater than 0.")
+            if self.parse_float("TACPreRightThreshold", 0) <= 0:
+                errors.append("Right threshold must be greater than 0.")
+            return errors
         if abs((self.parse_float("GoWeight", 0) + self.parse_float("NoGoWeight", 0)) - 1.0) > 1e-6:
             errors.append("Go and no-go weights must sum to 1.")
         if trigger == "IRFork" and not 0 <= self.parse_float("HITThreshold_percent", -1) <= 100:
@@ -607,6 +644,8 @@ class ProtocolGenerator(tk.Tk):
             self.draw_dmts_preview()
         elif self.active_behavior() == "tAC":
             self.draw_tac_preview()
+        elif self.active_behavior() == "tAC Pretraining":
+            self.draw_tac_pretraining_preview()
         else:
             self.draw_go_nogo_preview()
 
@@ -684,6 +723,32 @@ class ProtocolGenerator(tk.Tk):
         else:
             summary += " before reward"
         self.summary_var.set(summary)
+
+    def draw_tac_pretraining_preview(self):
+        canvas = self.canvas
+        width = max(500, canvas.winfo_width())
+        margin_left, margin_right, margin_top, row_gap = 132, 28, 58, 62
+        left_t = 0.25
+        right_t = 0.75
+        reward_s = max(0, self.parse_float("TACPreRewardduration_ms", 40) / 1000)
+        total_s = 1.25
+        scale = (width - margin_left - margin_right) / total_s
+        left_y = margin_top
+        right_y = margin_top + row_gap
+        reward_y = margin_top + row_gap * 2
+        self.draw_axis(margin_left, reward_y + 42, width - margin_right, total_s, scale)
+        for label, y in (("Left lick", left_y), ("Right lick", right_y), ("Left reward", reward_y)):
+            canvas.create_text(margin_left - 12, y, text=label, anchor="e")
+            canvas.create_line(margin_left, y, width - margin_right, y, fill="#dddddd")
+        self.draw_span(margin_left, left_y, scale, left_t, left_t + 0.04, "#1f77b4", "left")
+        self.draw_span(margin_left, right_y, scale, right_t, right_t + 0.04, "#d62728", "right")
+        self.draw_span(margin_left, reward_y, scale, right_t, right_t + reward_s, "#2ca02c", "reward")
+        self.draw_double_arrow(margin_left, margin_top + row_gap + 22, scale, left_t, right_t, "#6c757d", "sequence")
+        self.summary_var.set(
+            "tAC pretraining: no sound, no ITI; "
+            f"{self.variables['TACPreLeftChannel'].get()} lick then "
+            f"{self.variables['TACPreRightChannel'].get()} lick gives left reward"
+        )
 
     def draw_tac_preview(self):
         canvas = self.canvas
@@ -982,6 +1047,14 @@ def write_dat(path, values, parameters):
         "TACRewardduration_ms": "Rewardduration_ms",
         "TACRewardGo": "RewardGo",
         "TACPunishNoGoFA": "PunishNoGoFA",
+        "TACPreTaskType": "TaskType",
+        "TACPreMaxTrials": "MaxTrials",
+        "TACPreLeftChannel": "TACLeftChannel",
+        "TACPreRightChannel": "TACRightChannel",
+        "TACPreLeftThreshold": "TACLeftThreshold",
+        "TACPreRightThreshold": "TACRightThreshold",
+        "TACPreRewardduration_ms": "Rewardduration_ms",
+        "TACPreRewardGo": "RewardGo",
     }
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
@@ -994,12 +1067,33 @@ def write_dat(path, values, parameters):
             value = values.get(parameter.key, parameter.default)
             if values.get("TACTaskType") == "tAC" and key == "TriggerTypeDropDown":
                 value = "Lick"
+            if values.get("TACPreTaskType") == "tACPretraining" and key == "TriggerTypeDropDown":
+                value = "Lick"
             if key in {"NICard_filename", "Sound_filename"}:
                 value = value.replace("\\", "/")
             handle.write(f"{key}={value}\n")
         if values.get("DMTSTaskType") == "DMTS":
             handle.write("GoSoundId=1\n")
             handle.write("NoGoSoundId=2\n")
+        if values.get("TACPreTaskType") == "tACPretraining":
+            handle.write("GoSoundId=0\n")
+            handle.write("NoGoSoundId=0\n")
+            handle.write("GoWeight=1\n")
+            handle.write("NoGoWeight=0\n")
+            handle.write("SoundLevel=0\n")
+            handle.write("RandomSeed=0\n")
+            handle.write("ITI_s=0\n")
+            handle.write("ITIrandMin_s=0\n")
+            handle.write("ITIrandMax_s=0\n")
+            handle.write("Sounddelay_s=0\n")
+            handle.write("SoundDuration_s=0\n")
+            handle.write("TrialDuration_s=0\n")
+            handle.write("ResponseWindow_s=0\n")
+            handle.write("RewardDelay_s=0\n")
+            handle.write("RewardProb=1\n")
+            handle.write("PunishNoGoFA=0\n")
+            handle.write("TACMinlickcount=1\n")
+            handle.write("PlaySound=0\n")
 
 
 if __name__ == "__main__":

@@ -7,8 +7,8 @@ This document describes live plotting and result visualization in `pyBEHAVIOR_v6
 Plotting provides:
 
 - Live signal display for the primary behavior signal.
-- Extra task-specific signal traces, such as Lever licks on `ai0` and tAC left/right licks.
-- Separate overlay traces for trigger/reward output, sound output, and trial state.
+- Extra task-specific signal traces, such as Lever licks on `ai0` and tAC-family left/right licks.
+- Separate overlay traces for reward output, sound epoch timing, and trial state.
 - ITI shading after trial end.
 - A results window with recent trial outcomes, rates, conditions, and crossing durations.
 - A simple `.bin` viewer through `open_bin()`.
@@ -31,9 +31,9 @@ self.plot_queue.put(("log", message))
 | --- | --- |
 | Primary behavior trace | `time_buffer`, `data_buffer` |
 | Lever lick trace | `lever_lick_buffer`, sampled from `ai0` for live plotting |
-| tAC lick traces | `tac_left_buffer`, `tac_right_buffer` |
+| tAC-family lick traces | `tac_left_buffer`, `tac_right_buffer` |
 | Trigger/reward pulses | `trigger_pulses`, `record_trigger_pulse()` |
-| Sound output | `sound_outputs`, `record_sound_output()` |
+| Sound epoch bars | `sound_outputs`, `record_sound_output()` |
 | Trial state | `trial_state_intervals`, `get_trial_state_values()` |
 | ITI shading | `last_trial_end_time_s`, `next_trial_allowed_time_s` |
 
@@ -102,7 +102,7 @@ The results window reads `trial_rows` and `dict_across_trials`. It should not mu
 
 ## Event Recording For Plotting
 
-Reward/trigger pulses are recorded by:
+Reward pulses are recorded by:
 
 ```python
 record_trigger_pulse(pulse_s, start_s=None)

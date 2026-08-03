@@ -288,11 +288,43 @@ tAC uses side-specific reward outputs:
 
 The GUI `Device` value supplies the device name, for example `Dev1/port2/line6` and `Dev1/port2/line7`.
 
+## tAC Pretraining
+
+Task identifier:
+
+```text
+TaskType=tACPretraining
+```
+
+tAC pretraining is an event-based shaping mode for exploration. It does not present sounds, does not wait for ITI, and does not open a response window. It continuously watches the left and right lick channels.
+
+Main functions:
+
+- `check_tac_pretraining_sample()`
+- `finish_tac_pretraining_sequence()`
+
+The rule is:
+
+1. Wait for an upward crossing on `TACLeftChannel`.
+2. Store the left-lick time and wait for an upward crossing on `TACRightChannel`.
+3. When right follows left, send a left/default reward on `Device/port2/line6`.
+4. Log one `TrialLog.csv` event as `1 tAC-pretraining`, `ResultType=HIT`, `choice_side=left-then-right`, and `correct_side=left-reward`.
+5. Reset immediately to wait for the next left lick.
+
+Right licks before a left lick are logged but do not trigger reward. `MaxTrials` acts as a maximum reward-event count; `0` means unlimited. `PlaySound` is forced off for this task at runtime.
+
 ## Reward Output
 
-`send_output_pulse()` controls the reward/trigger digital output. It also records pulses for plotting and export through `record_trigger_pulse()`.
+`send_output_pulse()` controls the reward digital outputs. Left/default rewards use `Device/port2/line6`; right rewards use `Device/port2/line7`. It also records pulses for plotting and export through `record_trigger_pulse()`.
 
 `trigger_output_on_crossing` must be enabled for behavioral rewards to physically send pulses.
+
+Manual GUI reward controls call the same output path:
+
+- **Left Reward** sends one left/default pulse.
+- **Right Reward** sends one right pulse.
+- **100 Left** sends a train of 100 left/default pulses.
+- **100 Right** sends a train of 100 right pulses.
 
 ## Extension Notes
 

@@ -71,14 +71,14 @@ The current code treats:
 - `ai6` as the primary behavior signal for IRFork and Lever tasks.
 - `ai0` as the primary behavior signal when `TriggerTypeDropDown=Lick`.
 - `ai0` as an additional live lick trace during Lever tasks; lever triggering and reward logic still use `ai6`.
-- `ai0` and `ai1` as the default left/right lick channels for tAC.
+- `ai0` and `ai1` as the default left/right lick channels for tAC and tAC pretraining.
 - `ai5` as `SoundCopy` when available.
 
 `handle_data()` uses `get_behavior_signal_channel_name()` and `get_behavior_signal_column()` to select the active behavior signal from the channel list. If the selected channel is missing, the code logs a warning and falls back to the first acquired channel.
 
-For Lever, `handle_data()` also fills a live-only lick buffer from `ai0` so licks can be inspected while the IR fork/lever signal on `ai6` remains the behavior control signal. For tAC, `handle_data()` fills separate live buffers for `TACLeftChannel` and `TACRightChannel`. These are plotted as independent left/right lick traces so `ai0` and `ai1` can be inspected separately during the task.
+For Lever, `handle_data()` also fills a live-only lick buffer from `ai0` so licks can be inspected while the IR fork/lever signal on `ai6` remains the behavior control signal. For tAC and tAC pretraining, `handle_data()` fills separate live buffers for `TACLeftChannel` and `TACRightChannel`. These are plotted as independent left/right lick traces so `ai0` and `ai1` can be inspected separately during the task.
 
-Because lick mode uses `ai0`, the `Channels` field should include `ai0` whenever lick-triggered behavior is run. Because tAC uses independent left/right lick streams, the field should include both `TACLeftChannel` and `TACRightChannel`, defaulting to `ai0` and `ai1`.
+Because lick mode uses `ai0`, the `Channels` field should include `ai0` whenever lick-triggered behavior is run. Because tAC-family tasks use independent left/right lick streams, the field should include both `TACLeftChannel` and `TACRightChannel`, defaulting to `ai0` and `ai1`.
 
 If adding a new channel-dependent feature, keep `normalize_read()`, `handle_data()`, binary writing, live plotting, and NWB export aligned.
 
@@ -94,7 +94,7 @@ Then `_drain_plot_queue()` handles messages on the main thread.
 
 Common queue message kinds:
 
-- `"plot"`: redraw live signal.
+- `"plot"`: redraw live signal. `_drain_plot_queue()` keeps only the newest pending plot payload if the GUI falls behind.
 - `"log"`: append text to output log.
 - `"status"`: set status indicator color.
 - `"results"`: redraw results window.
@@ -106,6 +106,7 @@ When `Write BehaviorSignal.bin` is enabled, `open_behavior_signal_file()` opens:
 - `BehaviorSignal.bin`
 - `SoundCopy.bin`
 - `TrialState.bin`
+- `LeftLick.bin` and `RightLick.bin` for tAC sessions
 
 `handle_data()` writes continuous double-precision samples to those files. `TrialState.bin` is generated from `trial_state_intervals`, not acquired from hardware.
 

@@ -33,6 +33,8 @@ Important conventions:
 - `ClassicGoNoGo`
 - `Lever`
 - `DMTS`
+- `tAC`
+- `tACPretraining`
 
 The parameter reference in `pyBEHAVIOR_v6_parameters.md` is still the compact user-facing parameter table. The files in this folder describe the implementation contracts around those parameters.
 
@@ -49,5 +51,5 @@ The parameter reference in `pyBEHAVIOR_v6_parameters.md` is still the compact us
 .venv\Scripts\python.exe -m py_compile protocol_generator.py
 ```
 
-6. Copy changed runtime/protocol files to the GitHub mirror when requested by the lab workflow.
+6. Copy changed runtime/protocol/documentation files to the GitHub mirror when requested by the lab workflow.
 
