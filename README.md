@@ -69,6 +69,183 @@ run_protocol_generator.bat
 8. Press **Stop** to close acquisition and file handles.
 9. Use **Save NWB** if the session should be exported after acquisition.
 
+## Braincodec Classic Go/No-Go Workflow
+
+This workflow runs a classic Go/No-Go behavioral session while the Braincodec/PYNQ board controls the LED array.
+
+### 1. Start The PYNQ Remote Runner
+
+Connect the PYNQ board by Ethernet/USB. In a terminal on the board, start the Braincodec runner:
+
+```bash
+cd /home/xilinx/jupyter_notebooks/sc_remote
+python remote_runner.py --host 0.0.0.0 --port 8000 --workdir .
+```
+
+Leave this terminal running during the experiment.
+
+### 2. Open pyBEHAVIOR
+
+On the Windows acquisition computer:
+
+```bat
+cd C:\Users\Behaviour_2\Documents\GitHub\pyBEHAVIOR
+.venv\Scripts\python.exe pyBEHAVIOR_v6.py
+```
+
+The GUI has two tabs:
+
+- **Behavior**
+- **Braincodec**
+
+### 3. Configure Braincodec
+
+Open the **Braincodec** tab.
+
+For a classic Go/No-Go structure, select:
+
+```text
+Simple patterns
+```
+
+Choose the YAML config file, for example:
+
+```text
+config_M332_H2-190_simple-patterns.yaml
+```
+
+Then press:
+
+```text
+Detect From Config
+Validate Config
+```
+
+The preview should show which LEDs are used for GO and NO-GO based on the config file.
+
+### 4. Generate The Trials `.dat`
+
+In **Generate Trials .dat**, set the trial sequence parameters.
+
+Example:
+
+```text
+Trials: 800
+GO %: 70
+Blank %: 0
+Seed: optional
+```
+
+For simple patterns, the generated trial codes are:
+
+| Code | Meaning |
+| --- | --- |
+| `1` | GO |
+| `2` | NO-GO |
+| `0` | BLANK |
+
+The remaining percentage after `GO %` and `Blank %` becomes NO-GO.
+
+Press:
+
+```text
+Generate .dat
+```
+
+This creates a local trials file and automatically selects it in the Braincodec tab.
+
+### 5. Set Braincodec Run Options
+
+Usually:
+
+```text
+Extension cables used: checked
+```
+
+Use:
+
+```text
+Wait for trigger: unchecked
+```
+
+if Braincodec should start after the remote command.
+
+Use:
+
+```text
+Wait for trigger: checked
+```
+
+if the board should wait for an external hardware trigger before presenting LEDs.
+
+### 6. Upload Files To The Board
+
+Check that the PYNQ runner URL is:
+
+```text
+http://192.168.2.99:8000
+```
+
+Then press:
+
+```text
+Upload Files
+```
+
+This uploads the YAML config and generated trials `.dat` to the board.
+
+### 7. Start Braincodec
+
+Press:
+
+```text
+Remote Start
+```
+
+Then press:
+
+```text
+Remote Status
+```
+
+Expected states include:
+
+```text
+starting
+loading
+running
+```
+
+### 8. Run The Behavior Session
+
+Return to the **Behavior** tab.
+
+Set the normal pyBEHAVIOR parameters for the classic Go/No-Go session, then press:
+
+```text
+Start Live
+```
+
+At this stage, the Braincodec tab controls LED stimulation and the Behavior tab controls behavioral acquisition and saving.
+
+### Recommended First Test
+
+Before a full session, test with a short sequence:
+
+```text
+Trials: 20
+GO %: 50
+Blank %: 0
+Wait for trigger: unchecked
+```
+
+Verify that:
+
+- `Remote Start` works.
+- The LEDs light correctly.
+- `Remote Status` updates.
+- pyBEHAVIOR records normally.
+
 ## Hardware Defaults
 
 The current rig convention is:

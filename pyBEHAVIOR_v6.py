@@ -63,6 +63,14 @@ DEFAULT_SOUND_FILE = (
     r"\Sounds\FM_GoNoGo\12-Jan-2026\AllSounds_Corrected.mat"
 )
 
+try:
+    from braincodec.tk_panel import BraincodecTkPanel
+except Exception as exc:
+    BraincodecTkPanel = None
+    BRAINCODEC_IMPORT_ERROR = exc
+else:
+    BRAINCODEC_IMPORT_ERROR = None
+
 
 class BehaviorAcquisitionApp(tk.Tk):
     def __init__(self):
@@ -116,7 +124,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.trial_crossing_duration_stored = set()
         self.current_parameter_signature = None
         self.parameter_block_index = 0
-        self.last_behavior_channel_warning = ""
         self.active_trial_index = None
         self.active_trial_start_s = None
         self.active_trial_end_s = None
@@ -159,8 +166,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_scored = False
         self.tac_pretraining_first_side = ""
         self.tac_pretraining_first_time_s = None
-        self.tac_pretraining_left_count = 0
-        self.tac_pretraining_right_count = 0
         self.sim_next_pulse_start_s = 0.0
         self.sim_pulse_end_s = -1.0
         self.results_window = None
@@ -170,6 +175,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.ai_task = None
         self.reward_task = None
         self.right_reward_task = None
+        self.reward_pulse_count = 0
+        self.dropped_plot_frame_count = 0
+        self.last_callback_duration_s = 0.0
+        self.last_observed_rate_hz = 0.0
         self.reward_train_after_id = None
         self.reward_train_remaining = 0
         self.reward_train_total = 0
@@ -188,18 +197,30 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.log("pynwb not available: NWB export is disabled until pynwb is installed.")
 
     def _build_ui(self):
-        root = ttk.Frame(self, padding=10)
+        notebook = ttk.Notebook(self)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        behavior_tab = ttk.Frame(notebook)
+        braincodec_tab = ttk.Frame(notebook)
+        notebook.add(behavior_tab, text="Behavior")
+        notebook.add(braincodec_tab, text="Braincodec")
+
+        root = ttk.Frame(behavior_tab, padding=10)
         root.pack(fill=tk.BOTH, expand=True)
         root.columnconfigure(0, weight=3)
         root.columnconfigure(1, weight=2)
         root.rowconfigure(4, weight=3)
         root.rowconfigure(5, weight=1)
 
+        self._build_braincodec_tab(braincodec_tab)
+
         parameter_column = ttk.Frame(root)
         parameter_column.grid(row=0, column=1, rowspan=6, sticky="nsew", padx=(8, 0))
         parameter_column.columnconfigure(0, weight=1)
         parameter_column.rowconfigure(0, weight=0)
-        parameter_column.rowconfigure(1, weight=1)
+        parameter_column.rowconfigure(1, weight=0)
+        parameter_column.rowconfigure(2, weight=0)
+        parameter_column.rowconfigure(3, weight=1)
 
         run_setup = ttk.LabelFrame(root, text="Control And Files")
         run_setup.grid(row=0, column=0, sticky="ew", pady=(0, 6))
@@ -251,32 +272,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         ttk.Combobox(session, textvariable=self.output_format, values=("NWB", "BIDS", "No standard"), width=12).grid(row=0, column=7)
         self._entry(session, 8, "Save root", self.save_root, width=32)
 
-        acq = ttk.LabelFrame(root, text="Acquisition")
-        acq.grid(row=2, column=0, sticky="ew", pady=(0, 6))
-        self.device = tk.StringVar(value="Dev1")
-        self.channels = tk.StringVar(value="ai6,ai5,ai1,ai0")
-        self.rate_hz = tk.StringVar(value="1000")
-        self.window_s = tk.StringVar(value="10")
-        self.callback_s = tk.StringVar(value="0.1")
-        self.auto_scale = tk.BooleanVar(value=False)
-        self.ai_terminal_config = tk.StringVar(value="RSE")
-        self.subtract_baseline = tk.BooleanVar(value=False)
-        self.left_y_min = tk.StringVar(value="-1")
-        self.left_y_max = tk.StringVar(value="5")
-        self.right_y_min = tk.StringVar(value="-1")
-        self.right_y_max = tk.StringVar(value="5")
-        self._entry(acq, 0, "Device", self.device, width=9)
-        self._entry(acq, 2, "Channels", self.channels, width=16)
-        self._entry(acq, 4, "Rate Hz", self.rate_hz, width=9)
-        self._entry(acq, 6, "Window s", self.window_s, width=8)
-        self._entry(acq, 8, "Callback s", self.callback_s, width=8)
-        self._entry(acq, 0, "Left ymin", self.left_y_min, width=7, row=1)
-        self._entry(acq, 2, "Left ymax", self.left_y_max, width=7, row=1)
-        self._entry(acq, 4, "Right ymin", self.right_y_min, width=7, row=1)
-        self._entry(acq, 6, "Right ymax", self.right_y_max, width=7, row=1)
-        ttk.Checkbutton(acq, text="Auto scale", variable=self.auto_scale).grid(row=1, column=8, padx=(4, 4))
-        ttk.Checkbutton(acq, text="Subtract baseline", variable=self.subtract_baseline).grid(row=1, column=9, padx=(4, 4))
-
         trig = ttk.LabelFrame(root, text="Trigger And Sound")
         trig.grid(row=3, column=0, sticky="ew", pady=(0, 6))
         self.trigger_type = tk.StringVar(value="IRFork")
@@ -291,6 +286,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.dmts_random_match_trials = tk.BooleanVar(value=False)
         self.behavior_channel_var = tk.StringVar(value="")
         self.behavior_rule_var = tk.StringVar(value="")
+        self.left_valve_var = tk.StringVar(value="")
+        self.right_valve_var = tk.StringVar(value="")
         ttk.Label(trig, text="Trigger").grid(row=0, column=0, padx=(4, 4))
         ttk.Combobox(trig, textvariable=self.trigger_type, values=("IRFork", "Lick", "None"), width=9).grid(row=0, column=1)
         ttk.Checkbutton(trig, text="Write BehaviorSignal.bin", variable=self.write_behavior_signal_bin).grid(row=0, column=2, padx=8)
@@ -309,6 +306,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.dmts_random_match_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
         ttk.Label(trig, textvariable=self.behavior_channel_var).grid(row=2, column=0, columnspan=4, padx=6, pady=(2, 4), sticky="w")
         ttk.Label(trig, textvariable=self.behavior_rule_var).grid(row=2, column=4, columnspan=6, padx=6, pady=(2, 4), sticky="w")
+        ttk.Label(trig, textvariable=self.left_valve_var).grid(row=3, column=0, columnspan=4, padx=6, pady=(0, 4), sticky="w")
+        ttk.Label(trig, textvariable=self.right_valve_var).grid(row=3, column=4, columnspan=6, padx=6, pady=(0, 4), sticky="w")
 
         body = ttk.Frame(root)
         body.grid(row=4, column=0, sticky="nsew")
@@ -323,8 +322,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         seq = ttk.LabelFrame(parameter_column, text="Closed Loop Sequence")
         seq.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         self.sequence_length = tk.StringVar(value="300")
-        self.sequence_lenght = self.sequence_length
-        setattr(self, "self.sequence_length", self.sequence_length)
         self.sequence_values = tk.StringVar(value="1 10")
         self.sequence_weights = tk.StringVar(value="0.5 0.5")
         self.sequence_index_var = tk.StringVar(value="0")
@@ -344,8 +341,54 @@ class BehaviorAcquisitionApp(tk.Tk):
         self._entry(seq, 0, "Last sound", self.last_trial_sound_var, width=7, row=4, state="readonly")
         self._entry(seq, 2, "Last type", self.last_trial_type_var, width=7, row=4, state="readonly")
 
+        acq = ttk.LabelFrame(parameter_column, text="Acquisition")
+        acq.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        self.device = tk.StringVar(value="Dev1")
+        self.channels = tk.StringVar(value="ai6,ai5,ai1,ai0")
+        self.rate_hz = tk.StringVar(value="1000")
+        self.window_s = tk.StringVar(value="10")
+        self.callback_s = tk.StringVar(value="0.1")
+        self.auto_scale = tk.BooleanVar(value=False)
+        self.ai_terminal_config = tk.StringVar(value="RSE")
+        self.subtract_baseline = tk.BooleanVar(value=False)
+        self.left_y_min = tk.StringVar(value="-1")
+        self.left_y_max = tk.StringVar(value="5")
+        self.right_y_min = tk.StringVar(value="-1")
+        self.right_y_max = tk.StringVar(value="5")
+        self._entry(acq, 0, "Device", self.device, width=8)
+        self._entry(acq, 2, "Channels", self.channels, width=14)
+        self._entry(acq, 0, "Rate Hz", self.rate_hz, width=8, row=1)
+        self._entry(acq, 2, "Window s", self.window_s, width=8, row=1)
+        self._entry(acq, 0, "Callback s", self.callback_s, width=8, row=2)
+        self._entry(acq, 2, "Left ymin", self.left_y_min, width=7, row=2)
+        self._entry(acq, 0, "Left ymax", self.left_y_max, width=7, row=3)
+        self._entry(acq, 2, "Right ymin", self.right_y_min, width=7, row=3)
+        self._entry(acq, 0, "Right ymax", self.right_y_max, width=7, row=4)
+        ttk.Checkbutton(acq, text="Auto scale", variable=self.auto_scale).grid(row=4, column=2, columnspan=2, padx=(6, 4), pady=4, sticky="w")
+        ttk.Checkbutton(acq, text="Subtract baseline", variable=self.subtract_baseline).grid(row=5, column=0, columnspan=4, padx=(6, 4), pady=4, sticky="w")
+
+        health = ttk.LabelFrame(parameter_column, text="Session Health")
+        health.grid(row=2, column=0, sticky="ew", pady=(0, 6))
+        self.health_rate_var = tk.StringVar(value="Rate: - Hz")
+        self.health_callback_var = tk.StringVar(value="Callback: - ms")
+        self.health_dropped_plot_var = tk.StringVar(value="Dropped plots: 0")
+        self.health_reward_var = tk.StringVar(value="Rewards: 0")
+        self.health_trial_var = tk.StringVar(value="Trials: 0")
+        self.health_state_var = tk.StringVar(value="State: idle")
+        health_vars = (
+            self.health_rate_var,
+            self.health_callback_var,
+            self.health_dropped_plot_var,
+            self.health_reward_var,
+            self.health_trial_var,
+            self.health_state_var,
+        )
+        for index, var in enumerate(health_vars):
+            ttk.Label(health, textvariable=var).grid(row=index // 2, column=index % 2, padx=8, pady=3, sticky="w")
+            health.columnconfigure(index % 2, weight=1)
+
         trial = ttk.LabelFrame(parameter_column, text="Trial Structure")
-        trial.grid(row=1, column=0, sticky="nsew")
+        trial.grid(row=3, column=0, sticky="nsew")
         self.task_type = tk.StringVar(value="")
         self.iti_s = tk.StringVar(value="1")
         self.iti_rand_min_s = tk.StringVar(value="")
@@ -357,7 +400,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.response_window_s = tk.StringVar(value="2")
         self.reward_delay_s = tk.StringVar(value="0")
         self.hit_threshold_s = tk.StringVar(value="50")
-        self.punish_interval = tk.StringVar(value="")
         self.reward_go = tk.StringVar(value="")
         self.pavlov = tk.StringVar(value="0")
         self.punish_no_go_fa = tk.StringVar(value="")
@@ -381,17 +423,17 @@ class BehaviorAcquisitionApp(tk.Tk):
             trial.columnconfigure(col, weight=1)
         self._entry(trial, 0, "Task type", self.task_type, width=6, row=0)
         self._entry(trial, 2, "Current trial", self.current_trial_var, width=6, row=0, state="readonly")
-        self._entry(trial, 0, "RewardGo", self.reward_go, width=6, row=1)
-        self._entry(trial, 2, "Pavlov", self.pavlov, width=6, row=1)
-        self._entry(trial, 0, "ITI s", self.iti_s, width=6, row=2)
-        self._entry(trial, 2, "ITI min", self.iti_rand_min_s, width=6, row=2)
-        self._entry(trial, 0, "ITI max", self.iti_rand_max_s, width=6, row=3)
-        self._entry(trial, 2, "Trial s", self.trial_duration_s, width=6, row=3, state="readonly")
-        self._entry(trial, 0, "Response s", self.response_window_s, width=6, row=4)
-        self._entry(trial, 2, "Reward delay s", self.reward_delay_s, width=6, row=4)
+        self.reward_go_widgets = self._entry(trial, 0, "RewardGo", self.reward_go, width=6, row=1)
+        self.pavlov_widgets = self._entry(trial, 2, "Pavlov", self.pavlov, width=6, row=1)
+        self.iti_widgets = self._entry(trial, 0, "ITI s", self.iti_s, width=6, row=2)
+        self.iti_rand_min_widgets = self._entry(trial, 2, "ITI min", self.iti_rand_min_s, width=6, row=2)
+        self.iti_rand_max_widgets = self._entry(trial, 0, "ITI max", self.iti_rand_max_s, width=6, row=3)
+        self.trial_duration_widgets = self._entry(trial, 2, "Trial s", self.trial_duration_s, width=6, row=3, state="readonly")
+        self.response_window_widgets = self._entry(trial, 0, "Response s", self.response_window_s, width=6, row=4)
+        self.reward_delay_widgets = self._entry(trial, 2, "Reward delay s", self.reward_delay_s, width=6, row=4)
         self.sound_delay_widgets = self._entry(trial, 0, "Sound delay s", self.sound_delay_s, width=6, row=5)
         self.delay_widgets = self._entry(trial, 0, "Delay s", self.delay_s, width=6, row=5)
-        self._entry(trial, 2, "Punish FA", self.punish_no_go_fa, width=6, row=5)
+        self.punish_no_go_fa_widgets = self._entry(trial, 2, "Punish FA", self.punish_no_go_fa, width=6, row=5)
         self.min_lick_count_widgets = self._entry(trial, 0, "Min licks", self.min_lick_count, width=6, row=6)
         self.lick_threshold_widgets = self._entry(trial, 2, "Lick thresh", self.lick_threshold, width=6, row=6)
         self.hit_threshold_widgets = self._entry(trial, 2, "Resp. hold %", self.hit_threshold_s, width=6, row=6)
@@ -413,6 +455,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.task_type.trace_add("write", lambda *_: (self.update_task_parameter_visibility(), self.update_trial_duration(), self.update_behavior_readouts()))
         self.trigger_type.trace_add("write", lambda *_: (self.update_task_parameter_visibility(), self.update_behavior_readouts()))
         self.channels.trace_add("write", lambda *_: self.update_behavior_readouts())
+        self.device.trace_add("write", lambda *_: self.update_valve_mapping_readouts())
         for var in (
             self.min_lick_count,
             self.lick_threshold,
@@ -427,12 +470,28 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.update_trial_duration()
         self.update_task_parameter_visibility()
         self.update_behavior_readouts()
+        self.update_valve_mapping_readouts()
+        self.update_health_readouts()
 
         log_frame = ttk.LabelFrame(root, text="Output")
         log_frame.grid(row=5, column=0, sticky="nsew", pady=(8, 0))
         root.rowconfigure(5, weight=1)
         self.log_text = tk.Text(log_frame, height=7, wrap=tk.WORD)
         self.log_text.pack(fill=tk.BOTH, expand=True)
+
+    def _build_braincodec_tab(self, parent):
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(0, weight=1)
+        if BraincodecTkPanel is None:
+            message = (
+                "Braincodec module could not be imported.\n\n"
+                f"{BRAINCODEC_IMPORT_ERROR}"
+            )
+            ttk.Label(parent, text=message, justify=tk.LEFT).grid(row=0, column=0, padx=12, pady=12, sticky="nw")
+            return
+
+        self.braincodec_panel = BraincodecTkPanel(parent, padding=10)
+        self.braincodec_panel.grid(row=0, column=0, sticky="nsew")
 
     def _file_row(self, parent, row, label, var, command):
         line = ttk.Frame(parent)
@@ -455,10 +514,21 @@ class BehaviorAcquisitionApp(tk.Tk):
         is_lever = self.is_lever_task()
         is_dmts = self.is_dmts_task()
         is_tac = self.is_tac_task()
+        is_tac_pretraining = self.is_tac_pretraining_task()
         is_tac_family = self.is_tac_family_task()
         is_lick = self.is_lick_trigger()
-        self.set_widget_pair_visible(self.sound_delay_widgets, not is_lever and not is_dmts and not self.is_tac_pretraining_task(), row=5, col=0)
+        is_classic = not is_lever and not is_dmts and not is_tac_family
+        self.set_widget_pair_visible(self.reward_go_widgets, not is_lever and not is_tac_pretraining, row=1, col=0)
+        self.set_widget_pair_visible(self.pavlov_widgets, is_classic or is_dmts or is_tac, row=1, col=2)
+        self.set_widget_pair_visible(self.iti_widgets, not is_tac_pretraining, row=2, col=0)
+        self.set_widget_pair_visible(self.iti_rand_min_widgets, not is_tac_pretraining, row=2, col=2)
+        self.set_widget_pair_visible(self.iti_rand_max_widgets, not is_tac_pretraining, row=3, col=0)
+        self.set_widget_pair_visible(self.trial_duration_widgets, not is_tac_pretraining, row=3, col=2)
+        self.set_widget_pair_visible(self.response_window_widgets, not is_lever and not is_tac_pretraining, row=4, col=0)
+        self.set_widget_pair_visible(self.reward_delay_widgets, not is_lever and not is_tac_pretraining, row=4, col=2)
+        self.set_widget_pair_visible(self.sound_delay_widgets, is_classic, row=5, col=0)
         self.set_widget_pair_visible(self.delay_widgets, is_dmts, row=5, col=0)
+        self.set_widget_pair_visible(self.punish_no_go_fa_widgets, is_classic or is_dmts or is_tac, row=5, col=2)
         self.set_widget_pair_visible(self.min_lick_count_widgets, not is_lever and not is_tac_family, row=6, col=0)
         self.set_widget_pair_visible(self.lick_threshold_widgets, not is_lever and not is_tac_family and is_lick, row=6, col=2)
         self.set_widget_pair_visible(self.hit_threshold_widgets, not is_lever and not is_tac_family and not is_lick, row=6, col=2)
@@ -483,6 +553,36 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.set_widget_pair_visible(self.tac_left_threshold_widgets, is_tac_family, row=12, col=0)
         self.set_widget_pair_visible(self.tac_right_threshold_widgets, is_tac_family, row=12, col=2)
         self.set_widget_pair_visible(self.tac_min_lick_count_widgets, is_tac, row=13, col=0)
+
+    def update_valve_mapping_readouts(self):
+        if not hasattr(self, "left_valve_var"):
+            return
+        device = self.device.get().strip() or "Dev1"
+        self.left_valve_var.set(f"Left valve: {device}/port2/line6")
+        self.right_valve_var.set(f"Right valve: {device}/port2/line7")
+
+    def update_health_readouts(self, payload=None):
+        if not hasattr(self, "health_rate_var"):
+            return
+        if payload:
+            self.last_observed_rate_hz = payload.get("rate_hz", self.last_observed_rate_hz)
+            self.last_callback_duration_s = payload.get("callback_s", self.last_callback_duration_s)
+        state = self.get_session_health_state()
+        self.health_rate_var.set(f"Rate: {self.last_observed_rate_hz:.0f} Hz" if self.last_observed_rate_hz else "Rate: - Hz")
+        self.health_callback_var.set(f"Callback: {self.last_callback_duration_s * 1000:.1f} ms" if self.last_callback_duration_s else "Callback: - ms")
+        self.health_dropped_plot_var.set(f"Dropped plots: {self.dropped_plot_frame_count}")
+        self.health_reward_var.set(f"Rewards: {self.reward_pulse_count}")
+        self.health_trial_var.set(f"Trials: {self.trial_index}")
+        self.health_state_var.set(f"State: {state}")
+
+    def get_session_health_state(self):
+        if not self.running:
+            return "idle"
+        if self.active_trial_index is not None:
+            return f"trial {self.active_trial_index}"
+        if self.time_buffer and self.time_buffer[-1] < self.next_trial_allowed_time_s:
+            return "ITI"
+        return "waiting"
 
     def set_widget_pair_visible(self, widgets, visible, row, col):
         label_widget, entry_widget = widgets
@@ -804,7 +904,6 @@ class BehaviorAcquisitionApp(tk.Tk):
             "HITThreshold_percent": self.hit_threshold_s,
             "HITThreshold_s": self.hit_threshold_s,
             "HIT_s": self.hit_threshold_s,
-            "PunishInterval": self.punish_interval,
             "RewardGo": self.reward_go,
             "RewardGoProb": self.reward_go,
             "Pavlov": self.pavlov,
@@ -1000,6 +1099,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.trial_crossing_duration_stored = set()
         self.current_parameter_signature = None
         self.parameter_block_index = 0
+        self.reward_pulse_count = 0
+        self.dropped_plot_frame_count = 0
+        self.last_callback_duration_s = 0.0
+        self.last_observed_rate_hz = 0.0
         self.ensure_sequence_controls()
         self.generate_sequence(log=False)
         self.active_trial_index = None
@@ -1046,8 +1149,6 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_scored = False
         self.tac_pretraining_first_side = ""
         self.tac_pretraining_first_time_s = None
-        self.tac_pretraining_left_count = 0
-        self.tac_pretraining_right_count = 0
         self.sim_next_pulse_start_s = 0.0
         self.sim_pulse_end_s = -1.0
         self.current_trial_var.set("0")
@@ -1055,6 +1156,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.last_trial_type_var.set("")
         self.open_results_window()
         self.set_status("green")
+        self.update_health_readouts()
         self.prepare_session_folder()
         self.open_behavior_signal_file()
         if self.simulation_mode.get():
@@ -1082,6 +1184,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         if self.output_format.get() == "NWB":
             self.save_nwb(silent=True)
         self.set_status("gray")
+        self.update_health_readouts()
         self.log("Live acquisition stopped.")
 
     def clear_buffers(self):
@@ -1105,6 +1208,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.plot_fast_frame_count = 0
         self.plot_canvas.delete("all")
         self.log_text.delete("1.0", tk.END)
+        self.dropped_plot_frame_count = 0
+        self.update_health_readouts()
 
     def acquisition_loop(self):
         rate = self.parse_float(self.rate_hz, 1000)
@@ -1119,6 +1224,7 @@ class BehaviorAcquisitionApp(tk.Tk):
 
         while self.running:
             try:
+                callback_start = time.perf_counter()
                 if self.ai_task is not None and not use_simulation:
                     raw = self.ai_task.read(number_of_samples_per_channel=count, timeout=2.0)
                     data = self.normalize_read(raw, count)
@@ -1129,6 +1235,9 @@ class BehaviorAcquisitionApp(tk.Tk):
                     data, times = self.simulate_data(count, rate)
                     time.sleep(callback_s)
                 self.handle_data(times, data)
+                callback_elapsed = time.perf_counter() - callback_start
+                observed_rate = (len(data) / callback_elapsed) if callback_elapsed > 0 else 0.0
+                self.plot_queue.put(("health", {"rate_hz": observed_rate, "callback_s": callback_elapsed}))
             except Exception as exc:
                 self.plot_queue.put(("log", f"Acquisition error: {exc}"))
                 self.plot_queue.put(("status", "red"))
@@ -1449,7 +1558,6 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Rewardduration_ms": self.pulse_ms.get(),
             "HIT": self.hit_threshold_s.get(),
             "HITThreshold_percent": self.hit_threshold_s.get(),
-            "PunishInterval": self.punish_interval.get(),
             "RewardGo": self.reward_go.get(),
             "RewardProb": self.reward_go.get(),
             "LeftRewardLine": "port2/line6",
@@ -1522,7 +1630,6 @@ class BehaviorAcquisitionApp(tk.Tk):
             "Rewardduration_ms",
             "HIT",
             "HITThreshold_percent",
-            "PunishInterval",
             "RewardGo",
             "RewardProb",
             "LeftRewardLine",
@@ -1615,7 +1722,6 @@ class BehaviorAcquisitionApp(tk.Tk):
             "response_window_s": self.parse_float_value(params["ResponseWindow_s"], 2),
             "reward_delay_s": self.parse_float_value(params["RewardDelay_s"], 0),
             "reward_duration_ms": self.parse_float_value(params["Rewardduration_ms"], 50),
-            "punish_interval": params["PunishInterval"],
             "reward_go": params["RewardGo"],
             "reward_prob": params["RewardProb"],
             "left_reward_line": params["LeftRewardLine"],
@@ -1838,7 +1944,6 @@ class BehaviorAcquisitionApp(tk.Tk):
             return
 
         if left_crossed_up:
-            self.tac_pretraining_left_count += 1
             if self.tac_pretraining_first_side == "right" and self.tac_pretraining_first_time_s is not None:
                 self.finish_tac_pretraining_sequence(
                     self.tac_pretraining_first_time_s,
@@ -1852,7 +1957,6 @@ class BehaviorAcquisitionApp(tk.Tk):
                 self.plot_queue.put(("log", "tAC pretraining left lick registered; waiting for right lick."))
 
         if right_crossed_up:
-            self.tac_pretraining_right_count += 1
             if self.tac_pretraining_first_side == "left" and self.tac_pretraining_first_time_s is not None:
                 self.finish_tac_pretraining_sequence(
                     self.tac_pretraining_first_time_s,
@@ -2834,6 +2938,7 @@ class BehaviorAcquisitionApp(tk.Tk):
     def send_output_pulse(self, from_worker=False, start_s=None, reward_side="left"):
         pulse_s = max(0, self.parse_float(self.pulse_ms, 50) / 1000.0)
         self.record_trigger_pulse(pulse_s, start_s=start_s)
+        pulse_ok = False
         try:
             if (self.reward_task is None or (reward_side == "right" and self.right_reward_task is None)) and nidaqmx is not None:
                 self.setup_tasks()
@@ -2844,14 +2949,22 @@ class BehaviorAcquisitionApp(tk.Tk):
                 time.sleep(pulse_s)
                 task.write(False)
                 msg = f"{reward_side.capitalize()} output pulse sent on {line_name} for {pulse_s * 1000:g} ms."
+                pulse_ok = True
             else:
                 msg = f"{reward_side.capitalize()} output pulse simulated on {line_name}; nidaqmx is not available."
+                pulse_ok = True
         except Exception as exc:
             msg = f"{reward_side.capitalize()} output pulse error: {exc}"
         if from_worker:
             self.plot_queue.put(("log", msg))
         else:
             self.log(msg)
+        if pulse_ok:
+            self.reward_pulse_count += 1
+            if from_worker:
+                self.plot_queue.put(("health", None))
+            else:
+                self.update_health_readouts()
 
     def toggle_reward_train(self, reward_side="left"):
         if self.reward_train_after_id is not None or self.reward_train_remaining > 0:
@@ -3070,8 +3183,6 @@ class BehaviorAcquisitionApp(tk.Tk):
     def ensure_sequence_controls(self):
         if not hasattr(self, "sequence_length"):
             self.sequence_length = tk.StringVar(value="300")
-        self.sequence_lenght = self.sequence_length
-        setattr(self, "self.sequence_length", self.sequence_length)
         if not hasattr(self, "sequence_values"):
             self.sequence_values = tk.StringVar(value="1 2" if self.is_dmts_task() else "1 10")
         if not hasattr(self, "sequence_weights"):
@@ -3404,7 +3515,6 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("ResponseWindow_s", params["ResponseWindow_s"]),
             ("Rewardduration_ms", params["Rewardduration_ms"]),
             ("HIT", params["HIT"]),
-            ("PunishInterval", params["PunishInterval"]),
             ("RewardGo", params["RewardGo"]),
             ("RewardProb", params["RewardProb"]),
             ("LeftRewardLine", params["LeftRewardLine"]),
@@ -3726,10 +3836,14 @@ class BehaviorAcquisitionApp(tk.Tk):
     def _drain_plot_queue(self):
         latest_plot_payload = None
         results_pending = False
+        health_payload = None
+        health_pending = False
         try:
             while True:
                 kind, payload = self.plot_queue.get_nowait()
                 if kind == "plot":
+                    if latest_plot_payload is not None:
+                        self.dropped_plot_frame_count += 1
                     latest_plot_payload = payload
                 elif kind == "log":
                     self.log(payload)
@@ -3737,12 +3851,17 @@ class BehaviorAcquisitionApp(tk.Tk):
                     self.set_status(payload)
                 elif kind == "results":
                     results_pending = True
+                elif kind == "health":
+                    health_pending = True
+                    health_payload = payload
         except queue.Empty:
             pass
         if results_pending:
             self.redraw_results_window()
         if latest_plot_payload is not None:
             self.draw_plot(*latest_plot_payload)
+        if health_pending or latest_plot_payload is not None or results_pending:
+            self.update_health_readouts(health_payload)
         self.after(50, self._drain_plot_queue)
 
     def open_results_window(self):

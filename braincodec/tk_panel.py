@@ -7,6 +7,7 @@ from collections import deque
 from datetime import datetime
 import json
 from pathlib import Path
+import random
 import threading
 from tkinter import filedialog, ttk
 from typing import Callable, Optional
@@ -80,6 +81,11 @@ class BraincodecTkPanel(ttk.Frame):
         self.mode_var = tk.StringVar(value=MODE_SIMPLE)
         self.wait_for_trigger_var = tk.BooleanVar(value=True)
         self.ext_cables_used_var = tk.BooleanVar(value=True)
+        self.generated_trial_count_var = tk.StringVar(value="800")
+        self.generated_go_percent_var = tk.StringVar(value="50")
+        self.generated_blank_percent_var = tk.StringVar(value="0")
+        self.generated_catch_percent_var = tk.StringVar(value="0")
+        self.generated_seed_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="Idle")
         self.info_var = tk.StringVar(value="Waiting")
         self.progress_var = tk.IntVar(value=0)
@@ -101,7 +107,7 @@ class BraincodecTkPanel(ttk.Frame):
         left_pane = ttk.Frame(self)
         left_pane.grid(row=0, column=0, sticky="nsew")
         left_pane.columnconfigure(0, weight=1)
-        left_pane.rowconfigure(3, weight=1)
+        left_pane.rowconfigure(4, weight=1)
 
         controls = ttk.LabelFrame(left_pane, text="Braincodec Control")
         controls.grid(row=0, column=0, sticky="ew")
@@ -193,13 +199,43 @@ class BraincodecTkPanel(ttk.Frame):
             files, 2, "Patterns", self.patterns_file_var, self._browse_patterns
         )
 
+        generator = ttk.LabelFrame(left_pane, text="Generate Trials .dat")
+        generator.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        generator.columnconfigure(9, weight=1)
+        ttk.Label(generator, text="Trials").grid(row=0, column=0, padx=(6, 4), pady=6, sticky="w")
+        ttk.Entry(generator, textvariable=self.generated_trial_count_var, width=7).grid(
+            row=0, column=1, padx=(0, 8), pady=6, sticky="w"
+        )
+        ttk.Label(generator, text="GO %").grid(row=0, column=2, padx=(6, 4), pady=6, sticky="w")
+        ttk.Entry(generator, textvariable=self.generated_go_percent_var, width=6).grid(
+            row=0, column=3, padx=(0, 8), pady=6, sticky="w"
+        )
+        self.generated_secondary_label = ttk.Label(generator, text="Blank %")
+        self.generated_secondary_label.grid(row=0, column=4, padx=(6, 4), pady=6, sticky="w")
+        self.generated_secondary_entry = ttk.Entry(
+            generator, textvariable=self.generated_blank_percent_var, width=6
+        )
+        self.generated_secondary_entry.grid(
+            row=0, column=5, padx=(0, 8), pady=6, sticky="w"
+        )
+        ttk.Label(generator, text="Seed").grid(row=0, column=6, padx=(6, 4), pady=6, sticky="w")
+        ttk.Entry(generator, textvariable=self.generated_seed_var, width=8).grid(
+            row=0, column=7, padx=(0, 8), pady=6, sticky="w"
+        )
+        ttk.Button(generator, text="Generate .dat", command=self.generate_trials_file).grid(
+            row=0, column=8, padx=4, pady=6, sticky="ew"
+        )
+        ttk.Button(generator, text="Generate + Upload", command=self.generate_and_upload_trials).grid(
+            row=0, column=9, padx=(4, 6), pady=6, sticky="ew"
+        )
+
         preview = ttk.LabelFrame(self, text="Pattern Preview")
         preview.grid(row=0, column=1, sticky="ns", padx=(8, 0))
         preview.columnconfigure(0, weight=1)
         self._build_pattern_preview(preview)
 
         runtime = ttk.LabelFrame(left_pane, text="Run")
-        runtime.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
+        runtime.grid(row=4, column=0, sticky="nsew", pady=(8, 0))
         runtime.columnconfigure(0, weight=1)
         runtime.rowconfigure(3, weight=1)
 
@@ -351,6 +387,109 @@ class BraincodecTkPanel(ttk.Frame):
         self.set_status("Uploading")
         self.add_log_line(f"Uploading {len(payload['files'])} file(s) to PYNQ")
         self._run_remote_request("POST", "/upload", payload)
+
+    def generate_and_upload_trials(self) -> None:
+        if self.generate_trials_file():
+            self.upload_remote_files()
+
+    def generate_trials_file(self) -> bool:
+        try:
+            trial_count = int(self.generated_trial_count_var.get().strip())
+            go_percent = float(self.generated_go_percent_var.get().strip())
+            secondary_percent = float(self._generated_secondary_percent_var().get().strip())
+        except ValueError:
+            self.add_log_line("Trial generator values must be numeric")
+            self.set_status("Bad generator values")
+            return False
+
+        if trial_count <= 0:
+            self.add_log_line("Trial count must be greater than zero")
+            self.set_status("Bad trial count")
+            return False
+        if go_percent < 0 or secondary_percent < 0 or go_percent + secondary_percent > 100:
+            self.add_log_line("Generated trial percentages must be >= 0 and total <= 100")
+            self.set_status("Bad percentages")
+            return False
+
+        seed_text = self.generated_seed_var.get().strip()
+        rng = random.Random(seed_text if seed_text else None)
+        mode = self.mode_var.get()
+        codes = self._generate_trial_codes(trial_count, go_percent, secondary_percent, rng, mode)
+        if not codes:
+            return False
+
+        initial_dir = self._initial_dir(self.trials_file_var.get())
+        path_text = filedialog.asksaveasfilename(
+            title="Save generated Braincodec trials",
+            initialdir=initial_dir,
+            initialfile="generated_braincodec_trials.dat",
+            defaultextension=".dat",
+            filetypes=[("Braincodec trial files", "*.dat"), ("Text files", "*.txt"), ("All files", "*.*")],
+        )
+        if not path_text:
+            self.add_log_line("Trial generation cancelled")
+            return False
+
+        path = Path(path_text)
+        try:
+            path.write_text("\n".join(str(code) for code in codes) + "\n", encoding="utf-8")
+        except OSError as exc:
+            self.add_log_line(f"Could not save generated trials: {exc}")
+            self.set_status("Trial save failed")
+            return False
+
+        self.trials_file_var.set(str(path))
+        self.set_progress(0, maximum=len(codes))
+        self.set_status("Trials generated")
+        self.add_log_line(self._generated_trials_summary(codes, mode, path))
+        return True
+
+    def _generated_secondary_percent_var(self) -> tk.StringVar:
+        if self.mode_var.get() == MODE_BRAINCODEC:
+            return self.generated_catch_percent_var
+        return self.generated_blank_percent_var
+
+    def _generate_trial_codes(
+        self,
+        trial_count: int,
+        go_percent: float,
+        secondary_percent: float,
+        rng: random.Random,
+        mode: str,
+    ) -> list[int]:
+        go_cutoff = go_percent / 100.0
+        secondary_cutoff = (go_percent + secondary_percent) / 100.0
+        codes = []
+        for _ in range(trial_count):
+            draw = rng.random()
+            if draw < go_cutoff:
+                codes.append(1)
+            elif draw < secondary_cutoff:
+                if mode == MODE_BRAINCODEC:
+                    codes.append(rng.randint(2, 15))
+                else:
+                    codes.append(0)
+            else:
+                codes.append(16 if mode == MODE_BRAINCODEC else 2)
+        return codes
+
+    def _generated_trials_summary(self, codes: list[int], mode: str, path: Path) -> str:
+        go_count = sum(1 for code in codes if code == 1)
+        if mode == MODE_BRAINCODEC:
+            catch_count = sum(1 for code in codes if 2 <= code <= 15)
+            nogo_count = len(codes) - go_count - catch_count
+            return (
+                f"Generated {len(codes)} trials at {path.name}: "
+                f"GO={go_count}, CATCH={catch_count}, NO-GO={nogo_count} "
+                "(Braincodec codes: 1=GO, 2-15=CATCH, 16=NO-GO)"
+            )
+        blank_count = sum(1 for code in codes if code == 0)
+        nogo_count = sum(1 for code in codes if code == 2)
+        return (
+            f"Generated {len(codes)} trials at {path.name}: "
+            f"GO={go_count}, NO-GO={nogo_count}, BLANK={blank_count} "
+            "(Simple codes: 1=GO, 2=NO-GO, 0=BLANK)"
+        )
 
     def _build_upload_payload(self) -> Optional[dict]:
         files = []
@@ -821,10 +960,14 @@ class BraincodecTkPanel(ttk.Frame):
         if mode == MODE_SIMPLE:
             for widget in self.patterns_row:
                 widget.grid_remove()
+            self.generated_secondary_label.configure(text="Blank %")
+            self.generated_secondary_entry.configure(textvariable=self.generated_blank_percent_var)
             self.set_info("Simple patterns: use a YAML config plus a trials file.")
         else:
             for widget in self.patterns_row:
                 widget.grid()
+            self.generated_secondary_label.configure(text="Catch %")
+            self.generated_secondary_entry.configure(textvariable=self.generated_catch_percent_var)
             self.clear_pattern_preview("Braincodec .npy preview not implemented yet")
             self.set_info("Braincodec patterns: use YAML, trials, and a .npy patterns file.")
 
