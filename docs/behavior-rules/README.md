@@ -305,13 +305,15 @@ Main functions:
 
 The rule is:
 
-1. Wait for an upward crossing on `TACLeftChannel`.
-2. Store the left-lick time and wait for an upward crossing on `TACRightChannel`.
-3. When right follows left, send a left/default reward on `Device/port2/line6`.
-4. Log one `TrialLog.csv` event as `1 tAC-pretraining`, `ResultType=HIT`, `choice_side=left-then-right`, and `correct_side=left-reward`.
-5. Reset immediately to wait for the next left lick.
+1. Wait for an upward crossing on either `TACLeftChannel` or `TACRightChannel`.
+2. Store the first lick side and time.
+3. If the opposite side licks next, send reward to the first side.
+4. `left -> right` sends left/default reward on `Device/port2/line6`.
+5. `right -> left` sends right reward on `Device/port2/line7`.
+6. Log one `TrialLog.csv` event as `tAC-pretraining`, `ResultType=HIT`, and `choice_side=<first>-then-<second>`.
+7. Reset immediately to wait for the next first lick.
 
-Right licks before a left lick are logged but do not trigger reward. `MaxTrials` acts as a maximum reward-event count; `0` means unlimited. `PlaySound` is forced off for this task at runtime.
+Repeating the same side updates the stored first lick and keeps waiting for the opposite side. `MaxTrials` acts as a maximum reward-event count; `0` means unlimited. `PlaySound` is forced off for this task at runtime.
 
 ## Reward Output
 

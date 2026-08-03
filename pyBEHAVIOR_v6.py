@@ -157,8 +157,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
-        self.tac_pretraining_step = "left"
-        self.tac_pretraining_left_time_s = None
+        self.tac_pretraining_first_side = ""
+        self.tac_pretraining_first_time_s = None
         self.tac_pretraining_left_count = 0
         self.tac_pretraining_right_count = 0
         self.sim_next_pulse_start_s = 0.0
@@ -505,8 +505,8 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.behavior_channel_var.set(f"Behavior signal: {channel} (IRFork/Lever ai6, Lick ai0; SoundCopy ai5)")
         if self.is_tac_pretraining_task():
             rule = (
-                f"tAC pretraining: left lick on {self.get_tac_left_channel_name()} then "
-                f"right lick on {self.get_tac_right_channel_name()} gives left reward; no sound or ITI"
+                "tAC pretraining: left->right gives left reward, "
+                "right->left gives right reward; no sound or ITI"
             )
         elif self.is_tac_task():
             values = self._parse_number_list(self.sequence_values.get(), default=[1, 10], cast=int)
@@ -1044,10 +1044,8 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.active_dmts_test_sound_played = False
         self.active_dmts_response_started = False
         self.active_dmts_scored = False
-        self.tac_pretraining_step = "left"
-        self.tac_pretraining_left_time_s = None
-        self.tac_pretraining_step = "left"
-        self.tac_pretraining_left_time_s = None
+        self.tac_pretraining_first_side = ""
+        self.tac_pretraining_first_time_s = None
         self.tac_pretraining_left_count = 0
         self.tac_pretraining_right_count = 0
         self.sim_next_pulse_start_s = 0.0
@@ -1841,24 +1839,41 @@ class BehaviorAcquisitionApp(tk.Tk):
 
         if left_crossed_up:
             self.tac_pretraining_left_count += 1
-            self.tac_pretraining_step = "right"
-            self.tac_pretraining_left_time_s = sample_time_s
-            self.plot_queue.put(("log", "tAC pretraining left lick registered; waiting for right lick."))
+            if self.tac_pretraining_first_side == "right" and self.tac_pretraining_first_time_s is not None:
+                self.finish_tac_pretraining_sequence(
+                    self.tac_pretraining_first_time_s,
+                    sample_time_s,
+                    first_side="right",
+                    second_side="left",
+                )
+            else:
+                self.tac_pretraining_first_side = "left"
+                self.tac_pretraining_first_time_s = sample_time_s
+                self.plot_queue.put(("log", "tAC pretraining left lick registered; waiting for right lick."))
 
         if right_crossed_up:
             self.tac_pretraining_right_count += 1
-            if self.tac_pretraining_step == "right" and self.tac_pretraining_left_time_s is not None:
-                self.finish_tac_pretraining_sequence(self.tac_pretraining_left_time_s, sample_time_s)
+            if self.tac_pretraining_first_side == "left" and self.tac_pretraining_first_time_s is not None:
+                self.finish_tac_pretraining_sequence(
+                    self.tac_pretraining_first_time_s,
+                    sample_time_s,
+                    first_side="left",
+                    second_side="right",
+                )
             else:
-                self.plot_queue.put(("log", "tAC pretraining right lick registered before left; waiting for left lick."))
+                self.tac_pretraining_first_side = "right"
+                self.tac_pretraining_first_time_s = sample_time_s
+                self.plot_queue.put(("log", "tAC pretraining right lick registered; waiting for left lick."))
 
-    def finish_tac_pretraining_sequence(self, left_time_s, right_time_s):
-        threshold = self.get_tac_left_threshold()
+    def finish_tac_pretraining_sequence(self, first_time_s, second_time_s, first_side, second_side):
+        reward_side = first_side
+        threshold = self.get_tac_left_threshold() if first_side == "left" else self.get_tac_right_threshold()
         sound_id = 0
-        self.create_trial(sound_id, left_time_s, threshold, 0.0, trial_type_id=1, trial_type="tAC-pretraining")
+        trial_type_id = 1 if reward_side == "left" else 2
+        self.create_trial(sound_id, first_time_s, threshold, 0.0, trial_type_id=trial_type_id, trial_type="tAC-pretraining")
         row = self.trial_rows[-1]
-        row["trial_end_s"] = f"{right_time_s:.6f}"
-        row["crossing_duration_s"] = f"{max(0.0, right_time_s - left_time_s):.6f}"
+        row["trial_end_s"] = f"{second_time_s:.6f}"
+        row["crossing_duration_s"] = f"{max(0.0, second_time_s - first_time_s):.6f}"
         row["HIT"] = 1
         row["MISS"] = 0
         row["CR"] = 0
@@ -1867,29 +1882,30 @@ class BehaviorAcquisitionApp(tk.Tk):
         row["lick_count"] = 2
         row["left_lick_count"] = 1
         row["right_lick_count"] = 1
-        row["correct_side"] = "left-reward"
-        row["choice_side"] = "left-then-right"
-        self.last_trigger_time = left_time_s
-        self.last_trial_end_time_s = right_time_s
-        self.next_trial_allowed_time_s = right_time_s
-        self.start_trial_state_interval(left_time_s)
-        self.end_trial_state_interval(right_time_s)
+        row["correct_side"] = f"{reward_side}-reward"
+        row["choice_side"] = f"{first_side}-then-{second_side}"
+        self.last_trigger_time = first_time_s
+        self.last_trial_end_time_s = second_time_s
+        self.next_trial_allowed_time_s = second_time_s
+        self.start_trial_state_interval(first_time_s)
+        self.end_trial_state_interval(second_time_s)
         reward_probability = min(1.0, max(0.0, self.parse_float(self.reward_go, 1.0)))
         reward_draw = random.random()
         reward_sent = reward_draw <= reward_probability and self.trigger_output_on_crossing.get()
         if reward_sent:
-            self.send_output_pulse(from_worker=True, start_s=right_time_s, reward_side="left")
+            self.send_output_pulse(from_worker=True, start_s=second_time_s, reward_side=reward_side)
         self.write_trial_log()
         self.write_parameters_csv()
         self.store_trial_crossing_duration(row)
         self.plot_queue.put(("results", None))
         self.plot_queue.put((
             "log",
-            f"tAC pretraining reward {row['trial']}: left lick then right lick, "
-            f"left reward {'sent' if reward_sent else 'skipped'}, p={reward_probability:.3f}, draw={reward_draw:.3f}.",
+            f"tAC pretraining reward {row['trial']}: {first_side} lick then {second_side} lick, "
+            f"{reward_side} reward {'sent' if reward_sent else 'skipped'}, "
+            f"p={reward_probability:.3f}, draw={reward_draw:.3f}.",
         ))
-        self.tac_pretraining_step = "left"
-        self.tac_pretraining_left_time_s = None
+        self.tac_pretraining_first_side = ""
+        self.tac_pretraining_first_time_s = None
 
     def check_tac_sample(self, sample_time_s, row_values):
         left_value = self.get_row_channel_value(row_values, self.get_tac_left_channel_name(), 0.0)

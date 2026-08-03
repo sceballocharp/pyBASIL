@@ -730,6 +730,8 @@ class ProtocolGenerator(tk.Tk):
         margin_left, margin_right, margin_top, row_gap = 132, 28, 58, 62
         left_t = 0.25
         right_t = 0.75
+        right_first_t = 0.35
+        left_second_t = 0.95
         reward_s = max(0, self.parse_float("TACPreRewardduration_ms", 40) / 1000)
         total_s = 1.25
         scale = (width - margin_left - margin_right) / total_s
@@ -737,17 +739,21 @@ class ProtocolGenerator(tk.Tk):
         right_y = margin_top + row_gap
         reward_y = margin_top + row_gap * 2
         self.draw_axis(margin_left, reward_y + 42, width - margin_right, total_s, scale)
-        for label, y in (("Left lick", left_y), ("Right lick", right_y), ("Left reward", reward_y)):
+        for label, y in (("Left lick", left_y), ("Right lick", right_y), ("Reward", reward_y)):
             canvas.create_text(margin_left - 12, y, text=label, anchor="e")
             canvas.create_line(margin_left, y, width - margin_right, y, fill="#dddddd")
         self.draw_span(margin_left, left_y, scale, left_t, left_t + 0.04, "#1f77b4", "left")
         self.draw_span(margin_left, right_y, scale, right_t, right_t + 0.04, "#d62728", "right")
-        self.draw_span(margin_left, reward_y, scale, right_t, right_t + reward_s, "#2ca02c", "reward")
-        self.draw_double_arrow(margin_left, margin_top + row_gap + 22, scale, left_t, right_t, "#6c757d", "sequence")
+        self.draw_span(margin_left, reward_y, scale, right_t, right_t + reward_s, "#2ca02c", "left reward")
+        self.draw_span(margin_left, right_y, scale, right_first_t, right_first_t + 0.04, "#d62728", "right")
+        self.draw_span(margin_left, left_y, scale, left_second_t, left_second_t + 0.04, "#1f77b4", "left")
+        self.draw_span(margin_left, reward_y, scale, left_second_t, left_second_t + reward_s, "#9467bd", "right reward")
+        self.draw_double_arrow(margin_left, margin_top + row_gap + 22, scale, left_t, right_t, "#6c757d", "L->R")
+        self.draw_double_arrow(margin_left, margin_top + row_gap + 38, scale, right_first_t, left_second_t, "#6c757d", "R->L")
         self.summary_var.set(
             "tAC pretraining: no sound, no ITI; "
-            f"{self.variables['TACPreLeftChannel'].get()} lick then "
-            f"{self.variables['TACPreRightChannel'].get()} lick gives left reward"
+            f"{self.variables['TACPreLeftChannel'].get()} then {self.variables['TACPreRightChannel'].get()} gives left reward; "
+            f"{self.variables['TACPreRightChannel'].get()} then {self.variables['TACPreLeftChannel'].get()} gives right reward"
         )
 
     def draw_tac_preview(self):

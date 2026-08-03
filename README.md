@@ -91,7 +91,7 @@ The GUI `Device` field supplies the device name, so `Dev1` can be changed for an
 - Lever release mode uses `LeverHoldTime_s +/- LeverReleaseWindow_s` as a bonus zone: releases inside the window send three reward pulses total, late releases still count as HIT with one pulse, and too-early releases are MISS.
 - DMTS presents sample, delay, test, response window, then reward period.
 - tAC starts automatically after ITI and rewards left-correct trials on `port2/line6` and right-correct trials on `port2/line7`.
-- tAC pretraining has no sound and no ITI; a left lick followed by a right lick sends a left reward and logs one HIT event.
+- tAC pretraining has no sound and no ITI; left-then-right sends a left reward, and right-then-left sends a right reward.
 
 ## Documentation
 

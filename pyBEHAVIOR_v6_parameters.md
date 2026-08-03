@@ -10,7 +10,7 @@ This document describes the `parameters.dat` fields used by the current protocol
 - `tAC`
 - `tACPretraining`
 
-`pyBEHAVIOR_v6.py` currently imports and runs Classic Go/No-Go, Lever, DMTS, tAC, and tAC pretraining. DMTS can generate match and non-match trial types, with random sample/test sounds from a sound ID list such as `1:16`. tAC is a two-alternative choice task with one sound followed by left/right lick choice. tAC pretraining is a shaping mode with no sound and no ITI, where a left lick followed by a right lick triggers a left reward.
+`pyBEHAVIOR_v6.py` currently imports and runs Classic Go/No-Go, Lever, DMTS, tAC, and tAC pretraining. DMTS can generate match and non-match trial types, with random sample/test sounds from a sound ID list such as `1:16`. tAC is a two-alternative choice task with one sound followed by left/right lick choice. tAC pretraining is a shaping mode with no sound and no ITI, where left-then-right triggers a left reward and right-then-left triggers a right reward.
 
 ## Common Parameters
 
@@ -241,16 +241,17 @@ tAC pretraining is an exploration/shaping mode for tAC. It uses the same left/ri
 | `TACLeftThreshold` | Left threshold V | Voltage threshold for detecting left upward crossings. |
 | `TACRightThreshold` | Right threshold V | Voltage threshold for detecting right upward crossings. |
 | `Rewardduration_ms` | Reward duration ms | Duration of the left reward pulse. |
-| `RewardGo` | RewardGo Prob | Reward probability for completed left-then-right sequences. Default `1`. |
-| `MaxTrials` | Max rewards | Maximum number of rewarded left-then-right events. `0` means unlimited. |
+| `RewardGo` | RewardGo Prob | Reward probability for completed alternating lick sequences. Default `1`. |
+| `MaxTrials` | Max rewards | Maximum number of rewarded alternating lick events. `0` means unlimited. |
 
 Runtime rule:
 
 ```text
 left lick -> right lick -> left reward on Device/port2/line6
+right lick -> left lick -> right reward on Device/port2/line7
 ```
 
-Each completed sequence is logged as a `tAC-pretraining` HIT event in `TrialLog.csv`. Right licks before a left lick do not reward; the task keeps waiting for the next left lick.
+Each completed alternating sequence is logged as a `tAC-pretraining` HIT event in `TrialLog.csv`.
 
 ## Import Compatibility
 
@@ -277,4 +278,4 @@ Trial-specific fields such as `trial`, `timestamp`, `sound_id`, `trigger_time_s`
 | Lever | Yes | Yes | Implemented. |
 | DMTS | Yes | Yes | Initial sample-delay-test structure implemented with same-ID matching and optional randomized same-ID sound lists. |
 | tAC | Yes | Yes | Implemented as automatic-start left/right lick choice with no fork/IR requirement. |
-| tACPretraining | Yes | Yes | Implemented as left-then-right lick shaping with no sound and no ITI. |
+| tACPretraining | Yes | Yes | Implemented as alternating lick shaping with no sound and no ITI. |

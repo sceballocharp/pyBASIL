@@ -174,7 +174,7 @@ For layout-only edits, keep these command bindings unchanged.
 - `Random DMTS sounds` checkbox visible for DMTS.
 - Sample/test/fork grace/sound IDs visible for DMTS.
 - tAC left/right channel and threshold fields visible for `TaskType=tAC` and `TaskType=tACPretraining`.
-- tAC choice-lick count is used by normal tAC; tAC pretraining rewards a fixed left-then-right sequence.
+- tAC choice-lick count is used by normal tAC; tAC pretraining rewards alternating left/right or right/left sequences.
 
 When adding a task-specific control, add it to this visibility function.
 
