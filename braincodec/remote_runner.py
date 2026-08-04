@@ -12,12 +12,13 @@ import asyncio
 import base64
 import json
 import os
+import re
 import threading
 import traceback
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 
 MODE_SIMPLE = "simple_patterns"
@@ -38,6 +39,7 @@ class BraincodecRunnerState:
             "last_message": "Idle",
             "started_at": None,
             "finished_at": None,
+            "log_file": None,
             "error": None,
         }
 
@@ -54,6 +56,8 @@ class BraincodecRunnerState:
             if self.thread is not None and self.thread.is_alive():
                 return 409, {"ok": False, "error": "An experiment is already running"}
 
+            payload = dict(payload)
+            payload["log_file"] = _build_session_log_file(payload)
             self.status.update(
                 {
                     "state": "starting",
@@ -63,6 +67,7 @@ class BraincodecRunnerState:
                     "last_message": "Starting experiment",
                     "started_at": datetime.now().isoformat(timespec="seconds"),
                     "finished_at": None,
+                    "log_file": payload["log_file"],
                     "error": None,
                 }
             )
@@ -154,6 +159,7 @@ class BraincodecRunnerState:
 
     def _create_experiment(self, overlay, payload: dict[str, Any]):
         ExpSimplePatterns, ExpBraincodecPatterns = _import_driver_classes()
+        _patch_driver_log_file((ExpSimplePatterns, ExpBraincodecPatterns), payload.get("log_file"))
         mode = payload.get("mode", MODE_SIMPLE)
         config_file = _required(payload, "config_file")
         trials_file = _required(payload, "trials_file")
@@ -211,9 +217,15 @@ class BraincodecRequestHandler(BaseHTTPRequestHandler):
     runner_state: BraincodecRunnerState = None
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path == "/status":
             self._send_json(200, {"ok": True, "status": self.runner_state.snapshot()})
+            return
+        if path == "/download":
+            query = parse_qs(parsed.query)
+            requested_path = query.get("path", [""])[0]
+            self._send_download(requested_path)
             return
         self._send_json(404, {"ok": False, "error": "Unknown endpoint"})
 
@@ -254,6 +266,22 @@ class BraincodecRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def _send_download(self, requested_path: str) -> None:
+        try:
+            path = _safe_download_path(requested_path)
+            with open(path, "rb") as handle:
+                data = handle.read()
+        except Exception as exc:
+            self._send_json(404, {"ok": False, "error": str(exc)})
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(path)}"')
+        self.end_headers()
+        self.wfile.write(data)
+
 
 def _import_driver_classes():
     try:
@@ -286,6 +314,46 @@ def _count_trials_if_available(trials_file: str) -> int:
     return count
 
 
+def _build_session_log_file(payload: dict[str, Any]) -> str:
+    metadata = payload.get("session_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    mouse = _mouse_filename_component(str(metadata.get("mouse", "mouse")))
+    project = _safe_component(str(metadata.get("project", "project")))
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    os.makedirs("logs", exist_ok=True)
+    return os.path.join("logs", f"{mouse}_{project}_{timestamp}.csv")
+
+
+def _patch_driver_log_file(classes, log_file: str | None) -> None:
+    if not log_file:
+        return
+    os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
+
+    def create_named_log_file(folder="logs"):
+        del folder
+        return log_file
+
+    for cls in classes:
+        run_method = getattr(cls, "run", None)
+        globals_dict = getattr(run_method, "__globals__", None)
+        if isinstance(globals_dict, dict) and "create_log_file" in globals_dict:
+            globals_dict["create_log_file"] = create_named_log_file
+
+
+def _mouse_filename_component(value: str) -> str:
+    cleaned = _safe_component(value)
+    if cleaned and cleaned[:1].lower() != "m":
+        return f"M{cleaned}"
+    return cleaned or "mouse"
+
+
+def _safe_component(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).strip())
+    cleaned = cleaned.strip("._-")
+    return cleaned or "unknown"
+
+
 def _save_uploaded_file(file_info: dict[str, Any]) -> dict[str, str]:
     if not isinstance(file_info, dict):
         raise ValueError("Each uploaded file must be an object")
@@ -301,7 +369,7 @@ def _save_uploaded_file(file_info: dict[str, Any]) -> dict[str, str]:
     if file_type == "config":
         folder = "Configurations"
     elif file_type == "trials":
-        folder = "."
+        folder = "trials_files"
     elif file_type == "patterns":
         folder = "Patterns"
     else:
@@ -324,6 +392,19 @@ def _safe_filename(name: str) -> str:
     if basename in ("", ".", ".."):
         raise ValueError(f"Unsafe file name: {name}")
     return basename
+
+
+def _safe_download_path(path_text: str) -> str:
+    normalized = str(path_text or "").replace("\\", "/").strip()
+    if not normalized:
+        raise ValueError("Download path is required")
+    logs_root = os.path.abspath("logs")
+    candidate = os.path.abspath(normalized)
+    if not candidate.startswith(logs_root + os.sep):
+        raise ValueError(f"Unsafe download path: {path_text}")
+    if not os.path.isfile(candidate):
+        raise FileNotFoundError(path_text)
+    return candidate
 
 
 def main() -> None:

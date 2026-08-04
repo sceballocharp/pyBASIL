@@ -8,11 +8,13 @@ from datetime import datetime
 import json
 from pathlib import Path
 import random
+import re
 import threading
 from tkinter import filedialog, ttk
 from typing import Callable, Optional
 import tkinter as tk
 from urllib import error as urllib_error
+from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
 try:
@@ -65,12 +67,18 @@ class BraincodecTkPanel(ttk.Frame):
         *,
         on_start: Optional[Callback] = None,
         on_stop: Optional[Callback] = None,
+        session_metadata_provider: Optional[Callable[[], dict[str, str]]] = None,
+        on_trials_generated: Optional[Callable[[list[int], str], None]] = None,
+        local_log_dir_provider: Optional[Callable[[], str]] = None,
         log_lines: int = 80,
         padding: int = 10,
     ):
         super().__init__(master, padding=padding)
         self.on_start = on_start
         self.on_stop = on_stop
+        self.session_metadata_provider = session_metadata_provider
+        self.on_trials_generated = on_trials_generated
+        self.local_log_dir_provider = local_log_dir_provider
         self.log_lines = log_lines
         self._log_buffer = deque(maxlen=log_lines)
 
@@ -94,6 +102,9 @@ class BraincodecTkPanel(ttk.Frame):
         self.go_pattern_canvas = None
         self.nogo_pattern_canvas = None
         self._simulation_after_id = None
+        self._remote_poll_after_id = None
+        self._remote_poll_interval_ms = 1000
+        self._downloaded_remote_logs = set()
         self._simulation_trials = []
         self._simulation_index = 0
 
@@ -156,7 +167,7 @@ class BraincodecTkPanel(ttk.Frame):
         )
 
         mode = ttk.LabelFrame(left_pane, text="Experiment Type")
-        mode.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        mode.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         mode.columnconfigure(3, weight=1)
         ttk.Radiobutton(
             mode,
@@ -190,7 +201,7 @@ class BraincodecTkPanel(ttk.Frame):
         ).grid(row=1, column=1, padx=6, pady=(0, 6), sticky="w")
 
         files = ttk.LabelFrame(left_pane, text="Files")
-        files.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        files.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         files.columnconfigure(1, weight=1)
 
         self._file_row(files, 0, "Config", self.config_file_var, self._browse_config)
@@ -317,6 +328,15 @@ class BraincodecTkPanel(ttk.Frame):
     def set_stop_callback(self, callback: Optional[Callback]) -> None:
         self.on_stop = callback
 
+    def set_session_metadata_provider(self, callback: Optional[Callable[[], dict[str, str]]]) -> None:
+        self.session_metadata_provider = callback
+
+    def set_trials_generated_callback(self, callback: Optional[Callable[[list[int], str], None]]) -> None:
+        self.on_trials_generated = callback
+
+    def set_local_log_dir_provider(self, callback: Optional[Callable[[], str]]) -> None:
+        self.local_log_dir_provider = callback
+
     def set_indicator(self, color: str) -> None:
         self.indicator_color = color
         self.indicator.itemconfigure(self._indicator_item, fill=color)
@@ -369,6 +389,7 @@ class BraincodecTkPanel(ttk.Frame):
             return
         self.set_status("Remote starting")
         self.add_log_line("Sending remote start command")
+        self._start_remote_status_polling()
         self._run_remote_request("POST", "/start", payload)
 
     def stop_remote_experiment(self) -> None:
@@ -417,12 +438,13 @@ class BraincodecTkPanel(ttk.Frame):
         codes = self._generate_trial_codes(trial_count, go_percent, secondary_percent, rng, mode)
         if not codes:
             return False
+        stimuli = [{"light_code": int(code), "sound_id": 0} for code in codes]
 
-        initial_dir = self._initial_dir(self.trials_file_var.get())
+        initial_dir = self._generated_trials_dir()
         path_text = filedialog.asksaveasfilename(
             title="Save generated Braincodec trials",
             initialdir=initial_dir,
-            initialfile="generated_braincodec_trials.dat",
+            initialfile=self._generated_trials_filename(),
             defaultextension=".dat",
             filetypes=[("Braincodec trial files", "*.dat"), ("Text files", "*.txt"), ("All files", "*.*")],
         )
@@ -432,7 +454,9 @@ class BraincodecTkPanel(ttk.Frame):
 
         path = Path(path_text)
         try:
-            path.write_text("\n".join(str(code) for code in codes) + "\n", encoding="utf-8")
+            lines = ["LightCode\tSoundId"]
+            lines.extend(f"{stimulus['light_code']}\t{stimulus['sound_id']}" for stimulus in stimuli)
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         except OSError as exc:
             self.add_log_line(f"Could not save generated trials: {exc}")
             self.set_status("Trial save failed")
@@ -442,12 +466,61 @@ class BraincodecTkPanel(ttk.Frame):
         self.set_progress(0, maximum=len(codes))
         self.set_status("Trials generated")
         self.add_log_line(self._generated_trials_summary(codes, mode, path))
+        self._notify_trials_generated(stimuli, path)
         return True
+
+    def _notify_trials_generated(self, stimuli: list[dict], path: Path) -> None:
+        if self.on_trials_generated is None:
+            return
+        try:
+            self.on_trials_generated(stimuli, str(path))
+            self.add_log_line("Behavior sequence updated from Braincodec trials")
+        except Exception as exc:
+            self.add_log_line(f"Could not update Behavior sequence: {exc}")
 
     def _generated_secondary_percent_var(self) -> tk.StringVar:
         if self.mode_var.get() == MODE_BRAINCODEC:
             return self.generated_catch_percent_var
         return self.generated_blank_percent_var
+
+    def _generated_trials_dir(self) -> str:
+        existing_dir = self._initial_dir(self.trials_file_var.get())
+        if existing_dir and Path(existing_dir).exists():
+            return existing_dir
+        trials_dir = Path(__file__).resolve().parent / "trials_files"
+        trials_dir.mkdir(exist_ok=True)
+        return str(trials_dir)
+
+    def _generated_trials_filename(self) -> str:
+        metadata = self._session_metadata()
+        mouse = self._mouse_filename_component(metadata.get("mouse", "mouse"))
+        project = self._safe_filename_component(metadata.get("project", "project"))
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"{mouse}_{project}_{timestamp}.dat"
+
+    def _session_metadata(self) -> dict[str, str]:
+        if self.session_metadata_provider is None:
+            return {}
+        try:
+            metadata = self.session_metadata_provider()
+        except Exception as exc:
+            self.add_log_line(f"Could not read Behavior session fields: {exc}")
+            return {}
+        if not isinstance(metadata, dict):
+            return {}
+        return {str(key): str(value) for key, value in metadata.items()}
+
+    def _mouse_filename_component(self, value: str) -> str:
+        cleaned = self._safe_filename_component(value)
+        if cleaned and cleaned[:1].lower() != "m":
+            return f"M{cleaned}"
+        return cleaned or "mouse"
+
+    @staticmethod
+    def _safe_filename_component(value: str) -> str:
+        cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).strip())
+        cleaned = cleaned.strip("._-")
+        return cleaned or "unknown"
 
     def _generate_trial_codes(
         self,
@@ -521,15 +594,33 @@ class BraincodecTkPanel(ttk.Frame):
             self.add_log_line(f"Cannot upload missing file: {path_text}")
             self.set_status("Upload file missing")
             return None
+        content = path.read_bytes()
+        if file_type == "trials":
+            content = self._trial_light_column_bytes(path)
         return {
             "type": file_type,
             "name": path.name,
-            "content_b64": base64.b64encode(path.read_bytes()).decode("ascii"),
+            "content_b64": base64.b64encode(content).decode("ascii"),
         }
+
+    def _trial_light_column_bytes(self, path: Path) -> bytes:
+        light_codes = []
+        for raw_line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            cleaned = raw_line.strip()
+            if not cleaned or cleaned.startswith("#"):
+                continue
+            parts = cleaned.replace(",", " ").split()
+            if not parts:
+                continue
+            try:
+                light_codes.append(str(int(float(parts[0]))))
+            except ValueError:
+                continue
+        return ("\n".join(light_codes) + "\n").encode("utf-8")
 
     def _build_remote_payload(self) -> Optional[dict]:
         config_file = self._remote_file_value(self.config_file_var.get())
-        trials_file = self._remote_file_value(self.trials_file_var.get())
+        trials_file = self._remote_trials_file_value(self.trials_file_var.get())
         if not config_file:
             self.add_log_line("Select a config file before remote start")
             self.set_status("No config")
@@ -543,6 +634,7 @@ class BraincodecTkPanel(ttk.Frame):
             "mode": self.mode_var.get(),
             "config_file": config_file,
             "trials_file": trials_file,
+            "session_metadata": self._session_metadata(),
             "wait_for_trigger": self.wait_for_trigger_var.get(),
             "ext_cables_used": self.ext_cables_used_var.get(),
         }
@@ -560,7 +652,51 @@ class BraincodecTkPanel(ttk.Frame):
             return path.name
         return value.replace("\\", "/")
 
-    def _run_remote_request(self, method: str, endpoint: str, payload: Optional[dict]) -> None:
+    @staticmethod
+    def _remote_trials_file_value(value: str) -> str:
+        value = value.strip()
+        if not value:
+            return ""
+        normalized = value.replace("\\", "/")
+        if normalized.startswith("trials_files/"):
+            return normalized
+        path = Path(value)
+        if path.is_absolute() or path.exists():
+            return f"trials_files/{path.name}"
+        if "/" not in normalized:
+            return f"trials_files/{normalized}"
+        return normalized
+
+    def _start_remote_status_polling(self) -> None:
+        self._stop_remote_status_polling()
+        self._schedule_remote_status_poll(delay_ms=self._remote_poll_interval_ms)
+
+    def _stop_remote_status_polling(self) -> None:
+        if self._remote_poll_after_id is not None:
+            try:
+                self.after_cancel(self._remote_poll_after_id)
+            except Exception:
+                pass
+            self._remote_poll_after_id = None
+
+    def _schedule_remote_status_poll(self, delay_ms: Optional[int] = None) -> None:
+        if self._remote_poll_after_id is not None:
+            return
+        delay = self._remote_poll_interval_ms if delay_ms is None else delay_ms
+        self._remote_poll_after_id = self.after(delay, self._poll_remote_status)
+
+    def _poll_remote_status(self) -> None:
+        self._remote_poll_after_id = None
+        self._run_remote_request("GET", "/status", None, log_response=False)
+
+    def _run_remote_request(
+        self,
+        method: str,
+        endpoint: str,
+        payload: Optional[dict],
+        *,
+        log_response: bool = True,
+    ) -> None:
         base_url = self.remote_url_var.get().strip().rstrip("/")
         if not base_url:
             self.add_log_line("Enter the PYNQ runner URL first")
@@ -569,12 +705,18 @@ class BraincodecTkPanel(ttk.Frame):
 
         thread = threading.Thread(
             target=self._remote_request_worker,
-            args=(method, f"{base_url}{endpoint}", payload),
+            args=(method, f"{base_url}{endpoint}", payload, log_response),
             daemon=True,
         )
         thread.start()
 
-    def _remote_request_worker(self, method: str, url: str, payload: Optional[dict]) -> None:
+    def _remote_request_worker(
+        self,
+        method: str,
+        url: str,
+        payload: Optional[dict],
+        log_response: bool,
+    ) -> None:
         try:
             data = None
             headers = {}
@@ -584,7 +726,7 @@ class BraincodecTkPanel(ttk.Frame):
             request = urllib_request.Request(url, data=data, headers=headers, method=method)
             with urllib_request.urlopen(request, timeout=5) as response:
                 body = json.loads(response.read().decode("utf-8"))
-            self.after(0, lambda body=body: self._handle_remote_response(body))
+            self.after(0, lambda body=body, log_response=log_response: self._handle_remote_response(body, log_response))
         except urllib_error.HTTPError as exc:
             try:
                 body = json.loads(exc.read().decode("utf-8"))
@@ -596,7 +738,7 @@ class BraincodecTkPanel(ttk.Frame):
             message = str(exc)
             self.after(0, lambda message=message: self._handle_remote_error(message))
 
-    def _handle_remote_response(self, body: dict) -> None:
+    def _handle_remote_response(self, body: dict, log_response: bool = True) -> None:
         saved = body.get("saved")
         if saved:
             saved_names = ", ".join(item.get("path", item.get("name", "")) for item in saved)
@@ -611,17 +753,92 @@ class BraincodecTkPanel(ttk.Frame):
         current_trial = status.get("current_trial", 0)
         total_trials = status.get("total_trials", 0)
 
-        self.set_status(f"Remote {state}")
+        self.set_status(self._remote_status_text(state, message))
         if total_trials:
             self.set_progress(int(current_trial), maximum=int(total_trials))
         if message:
             self.set_info(message)
-        self.add_log_line(f"Remote state: {state}" + (f" | {message}" if message else ""))
+        if log_response:
+            self.add_log_line(f"Remote state: {state}" + (f" | {message}" if message else ""))
+
+        if state in {"starting", "loading", "running", "stopping"}:
+            self._schedule_remote_status_poll()
+        else:
+            self._stop_remote_status_polling()
+            self._download_remote_log_if_available(status)
+
+    @staticmethod
+    def _remote_status_text(state: str, message: str) -> str:
+        normalized_message = str(message or "").strip()
+        if normalized_message:
+            if normalized_message.lower() == "waiting for trigger":
+                return "Waiting for Trigger"
+            return normalized_message
+        return f"Remote {state}"
 
     def _handle_remote_error(self, message: str) -> None:
+        self._stop_remote_status_polling()
         self.set_status("Remote error")
         self.set_indicator("red")
         self.add_log_line(f"Remote error: {message}")
+
+    def _download_remote_log_if_available(self, status: dict) -> None:
+        log_file = str(status.get("log_file") or "").strip()
+        if not log_file or log_file in self._downloaded_remote_logs:
+            return
+        self._downloaded_remote_logs.add(log_file)
+        self.add_log_line(f"Downloading remote Braincodec log: {log_file}")
+        self._download_remote_log(log_file)
+
+    def _download_remote_log(self, log_file: str) -> None:
+        base_url = self.remote_url_var.get().strip().rstrip("/")
+        if not base_url:
+            self.add_log_line("Cannot download remote log: no PYNQ runner URL")
+            return
+        thread = threading.Thread(
+            target=self._download_remote_log_worker,
+            args=(base_url, log_file),
+            daemon=True,
+        )
+        thread.start()
+
+    def _download_remote_log_worker(self, base_url: str, log_file: str) -> None:
+        try:
+            query_path = urllib_parse.quote(log_file.replace("\\", "/"), safe="/")
+            url = f"{base_url}/download?path={query_path}"
+            with urllib_request.urlopen(url, timeout=10) as response:
+                data = response.read()
+            destination = self._local_log_destination(log_file)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(data)
+            self.after(0, lambda destination=destination: self._handle_remote_log_downloaded(destination))
+        except Exception as exc:
+            message = str(exc)
+            self.after(0, lambda message=message: self.add_log_line(f"Remote log download failed: {message}"))
+
+    def _local_log_destination(self, log_file: str) -> Path:
+        filename = Path(log_file.replace("\\", "/")).name or "braincodec_log.csv"
+        target_dir = self._local_log_dir()
+        return target_dir / filename
+
+    def _local_log_dir(self) -> Path:
+        if self.local_log_dir_provider is not None:
+            try:
+                provided = self.local_log_dir_provider()
+            except Exception as exc:
+                self.add_log_line(f"Could not read pyBEHAVIOR session folder: {exc}")
+                provided = ""
+            if provided:
+                path = Path(provided)
+                if path.exists():
+                    return path
+        fallback = Path(__file__).resolve().parent / "logs"
+        fallback.mkdir(exist_ok=True)
+        return fallback
+
+    def _handle_remote_log_downloaded(self, destination: Path) -> None:
+        self.add_log_line(f"Downloaded remote log to {destination}")
+        self.set_info(f"Braincodec log saved: {destination.name}")
 
     def detect_mode_from_config(self) -> Optional[str]:
         config = self._read_config()
@@ -777,8 +994,13 @@ class BraincodecTkPanel(ttk.Frame):
                 cleaned = raw_line.strip()
                 if not cleaned or cleaned.startswith("#"):
                     continue
-                for value in cleaned.replace(",", " ").split():
-                    trials.append(float(value))
+                parts = cleaned.replace(",", " ").split()
+                if not parts:
+                    continue
+                try:
+                    trials.append(float(parts[0]))
+                except ValueError:
+                    continue
         except Exception as exc:
             self.add_log_line(f"Could not read trials file: {exc}")
             self.set_status("Trials error")

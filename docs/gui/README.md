@@ -1,6 +1,6 @@
 # GUI
 
-This document describes how the main `pyBEHAVIOR_v6.py` Tkinter GUI is built and how to change the visual structure without changing acquisition, task rules, or saved-data behavior.
+This document describes how the main `pyBEHAVIOR_v7.py` Tkinter GUI is built and how to change the visual structure without changing acquisition, task rules, or saved-data behavior.
 
 ## Core Principle
 
@@ -30,22 +30,57 @@ The main GUI is built in:
 def _build_ui(self):
 ```
 
-Current top-level sections:
+The main window is a `ttk.Notebook` with two top-level tabs:
+
+| Tab | Main responsibility |
+| --- | --- |
+| `Behavior` | NI acquisition, behavior rules, sound/reward controls, live plot, trial log, and session files. |
+| `Braincodec` | Reusable `BraincodecTkPanel` for LED-array trial generation, upload to the PYNQ runner, remote start/stop/status, and remote log download. |
+
+The `Behavior` tab currently contains these sections:
 
 | Section | Frame title | Main responsibility |
 | --- | --- | --- |
 | Left column, top | `Control And Files` | Start/stop, import parameters, NWB save, `.bin` viewer, simulation, file selectors, left/right reward trains, stim generator. |
 | Left column | `Session` | User, mouse, project, output format, save root. |
-| Left column | `Acquisition` | NI device, channel list, acquisition rate, plotting window, callback size, and scaling. Terminal configuration is kept internal. |
 | Left column | `Trigger And Sound` | Trigger source, binary writing, automatic reward toggle, manual left/right reward buttons, sound playback, threshold, pulse duration, sound ID/level, task-specific checkboxes. |
 | Left column, center | `Live Acquisition` | Live plot canvas. For Lever, this draws the `ai6` lever/IR fork signal plus the `ai0` lick trace. For tAC and tAC pretraining, this draws separate left/right lick traces from `TACLeftChannel` and `TACRightChannel`. |
 | Left column, bottom | `Output` | Text log. |
 | Right parameter column, top | `Closed Loop Sequence` | Sequence length, values, weights, seed, max trials, sequence status. |
+| Right parameter column | `Acquisition` | NI device, channel list, acquisition rate, plotting window, callback size, and scaling. Terminal configuration is kept internal. |
+| Right parameter column | `Session Health` | Observed rate, callback timing, dropped plot frames, reward count, trial count, and current state. |
 | Right parameter column, bottom | `Trial Structure` | Task timing, response criteria, reward settings, task-specific fields. |
 
 The root frame is split into two main columns. `parameter_column` is placed at root column `1` and spans rows `0` through `5`, so the parameter panels occupy the full GUI height on the right. The operational controls, live plot, and log are placed in root column `0`. Parameter panels are arranged as two label-entry groups per row, using grid columns `0/1` and `2/3`.
 
-`Trigger And Sound` also includes read-only status text for the selected behavior channel and active task rule. These labels are backed by `behavior_channel_var` and `behavior_rule_var`, and are refreshed by `update_behavior_readouts()`.
+`Trigger And Sound` also includes read-only status text for the selected behavior channel, active task rule, reward valve mapping, and light trigger TTL line. These labels are backed by `behavior_channel_var`, `behavior_rule_var`, `left_valve_var`, `right_valve_var`, and `light_ttl_var`, and are refreshed by `update_behavior_readouts()` or `update_valve_mapping_readouts()`.
+
+## Braincodec Tab
+
+`_build_braincodec_tab(parent)` creates the Braincodec tab. It imports and embeds `BraincodecTkPanel` from `braincodec.tk_panel`.
+
+The embedded panel receives three callbacks from `pyBEHAVIOR_v7.py`:
+
+- `session_metadata_provider=self.get_braincodec_session_metadata`
+- `on_trials_generated=self.use_braincodec_trials`
+- `local_log_dir_provider=self.get_braincodec_log_download_dir`
+
+`use_braincodec_trials(codes, path)` is the bridge from Braincodec trial generation to the Behavior tab. In v7, Braincodec light identity and acoustic sound identity are intentionally separate. The generated trial file uses two columns:
+
+| Column | Meaning |
+| --- | --- |
+| `LightCode` | Braincodec/PYNQ light pattern code. |
+| `SoundId` | Optional pyBEHAVIOR sound ID. `0` means no sound. |
+
+Generated files currently set `SoundId=0` for every trial. pyBEHAVIOR builds a simple `TrialStimulus` dictionary per trial:
+
+```python
+{"light_code": 1, "sound_id": 0, "trial_type": "GO"}
+```
+
+Behavioral trial type is defined from `LightCode`: `1` is GO, `0` is BLANK, and any other nonzero light code is scored as no-go. Sound playback is independent and occurs only when `SoundId > 0`.
+
+For compatibility with the existing PYNQ Braincodec driver, the upload path sends only the first column (`LightCode`) to the board, while pyBEHAVIOR keeps both columns locally.
 
 ## Layout System
 
@@ -253,7 +288,7 @@ Before finishing a GUI restructuring change:
 5. Run:
 
 ```powershell
-.venv\Scripts\python.exe -m py_compile pyBEHAVIOR_v6.py
+.venv\Scripts\python.exe -m py_compile pyBEHAVIOR_v7.py
 ```
 
 6. If possible on the rig computer, open the GUI and switch/import all four protocol families to check layout.

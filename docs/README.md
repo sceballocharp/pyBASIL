@@ -1,21 +1,21 @@
-# pyBEHAVIOR v6 Documentation
+# pyBEHAVIOR v7 Documentation
 
-This folder documents the current `pyBEHAVIOR_v6.py` runtime and its protocol-generation workflow. It is written for future maintainers and coding agents that need to extend the code without rediscovering the acquisition loop, task rules, parameter contracts, plotting overlays, or saved-data format.
+This folder documents the current `pyBEHAVIOR_v7.py` runtime and its protocol-generation workflow. It is written for future maintainers and coding agents that need to extend the code without rediscovering the acquisition loop, task rules, parameter contracts, plotting overlays, or saved-data format.
 
 ## Code Map
 
 | Area | Main file | Documentation |
 | --- | --- | --- |
-| Live acquisition and hardware loop | `pyBEHAVIOR_v6.py` | [Acquisition](acquisition/README.md) |
-| Protocol fields, `.dat` import/export, generator GUI | `pyBEHAVIOR_v6.py`, `protocol_generator.py`, `protocols/*.dat` | [Parameters](parameters/README.md) |
-| Main Tkinter GUI structure and safe layout edits | `pyBEHAVIOR_v6.py` | [GUI](gui/README.md) |
-| Classic Go/No-Go, Lever, DMTS scoring and reward rules | `pyBEHAVIOR_v6.py` | [Behavior Rules](behavior-rules/README.md) |
-| Live trace, ITI shading, event overlays, results window | `pyBEHAVIOR_v6.py` | [Plotting](plotting/README.md) |
-| Binary streams, CSV logs, NWB export contract | `pyBEHAVIOR_v6.py` | [Saving Data](saving-data/README.md) |
+| Live acquisition and hardware loop | `pyBEHAVIOR_v7.py` | [Acquisition](acquisition/README.md) |
+| Protocol fields, `.dat` import/export, generator GUI | `pyBEHAVIOR_v7.py`, `protocol_generator.py`, `protocols/*.dat` | [Parameters](parameters/README.md) |
+| Main Tkinter GUI structure and safe layout edits | `pyBEHAVIOR_v7.py` | [GUI](gui/README.md) |
+| Classic Go/No-Go, Lever, DMTS scoring and reward rules | `pyBEHAVIOR_v7.py` | [Behavior Rules](behavior-rules/README.md) |
+| Live trace, ITI shading, event overlays, results window | `pyBEHAVIOR_v7.py` | [Plotting](plotting/README.md) |
+| Binary streams, CSV logs, NWB export contract | `pyBEHAVIOR_v7.py` | [Saving Data](saving-data/README.md) |
 
 ## Main Runtime
 
-`BehaviorAcquisitionApp` in `pyBEHAVIOR_v6.py` owns the full GUI and runtime state. It is a single Tkinter application with a worker acquisition thread and a main-thread plot/log queue.
+`BehaviorAcquisitionApp` in `pyBEHAVIOR_v7.py` owns the full GUI and runtime state. It is a single Tkinter application with a worker acquisition thread and a main-thread plot/log queue.
 
 Important conventions:
 
@@ -28,7 +28,7 @@ Important conventions:
 
 ## Current Protocol Families
 
-`protocol_generator.py` and `pyBEHAVIOR_v6.py` currently support:
+`protocol_generator.py` and `pyBEHAVIOR_v7.py` currently support:
 
 - `ClassicGoNoGo`
 - `Lever`
@@ -36,7 +36,7 @@ Important conventions:
 - `tAC`
 - `tACPretraining`
 
-The parameter reference in `pyBEHAVIOR_v6_parameters.md` is still the compact user-facing parameter table. The files in this folder describe the implementation contracts around those parameters.
+The parameter reference in `pyBEHAVIOR_v7_parameters.md` is still the compact user-facing parameter table. The files in this folder describe the implementation contracts around those parameters.
 
 ## Recommended Workflow For Future Changes
 
@@ -47,7 +47,7 @@ The parameter reference in `pyBEHAVIOR_v6_parameters.md` is still the compact us
 5. Compile after Python edits:
 
 ```powershell
-.venv\Scripts\python.exe -m py_compile pyBEHAVIOR_v6.py
+.venv\Scripts\python.exe -m py_compile pyBEHAVIOR_v7.py
 .venv\Scripts\python.exe -m py_compile protocol_generator.py
 ```
 

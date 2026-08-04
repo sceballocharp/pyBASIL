@@ -1,6 +1,6 @@
 # Behavior Rules
 
-This document describes trial start, scoring, and reward logic in `pyBEHAVIOR_v6.py`.
+This document describes trial start, scoring, and reward logic in `pyBEHAVIOR_v7.py`.
 
 ## Shared Concepts
 

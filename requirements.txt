@@ -1,5 +1,8 @@
 numpy
 scipy
+matplotlib
 nidaqmx
 sounddevice
 pynwb
+h5py
+pandas

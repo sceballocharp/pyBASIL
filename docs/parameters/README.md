@@ -6,12 +6,12 @@ This document describes how parameters are represented, imported, saved, and mir
 
 Parameters can come from:
 
-- GUI defaults in `_build_ui()` in `pyBEHAVIOR_v6.py`.
+- GUI defaults in `_build_ui()` in `pyBEHAVIOR_v7.py`.
 - Imported `.dat` files through `import_parameters_file()`.
 - Generated protocol files from `protocol_generator.py`.
 - Live GUI edits made before or during acquisition.
 
-The compact user-facing parameter table is in `pyBEHAVIOR_v6_parameters.md`.
+The compact user-facing parameter table is in `pyBEHAVIOR_v7_parameters.md`.
 
 ## Runtime Parameter Pipeline
 
@@ -59,7 +59,7 @@ When adding a new saved parameter, update all relevant places:
 6. Add it to `build_nwb_contract_parameters()` if it should appear in NWB metadata.
 7. Add it to `protocol_generator.py` `PARAMETERS` and `validate()` if protocol files should generate it.
 8. Add or update example files under `protocols/`.
-9. Update `pyBEHAVIOR_v6_parameters.md` and this documentation if behavior changes.
+9. Update `pyBEHAVIOR_v7_parameters.md` and this documentation if behavior changes.
 
 The recent `Pavlov` parameter follows this pattern.
 

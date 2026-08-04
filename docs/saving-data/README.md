@@ -1,6 +1,6 @@
 # Saving Data
 
-This document describes files written by `pyBEHAVIOR_v6.py` and the export contract used for downstream analysis.
+This document describes files written by `pyBEHAVIOR_v7.py` and the export contract used for downstream analysis.
 
 ## Session Folder
 

@@ -66,8 +66,13 @@ DEFAULT_SOUND_FILE = (
 try:
     from braincodec.tk_panel import BraincodecTkPanel
 except Exception as exc:
-    BraincodecTkPanel = None
-    BRAINCODEC_IMPORT_ERROR = exc
+    try:
+        from tk_panel import BraincodecTkPanel
+    except Exception as fallback_exc:
+        BraincodecTkPanel = None
+        BRAINCODEC_IMPORT_ERROR = fallback_exc
+    else:
+        BRAINCODEC_IMPORT_ERROR = None
 else:
     BRAINCODEC_IMPORT_ERROR = None
 
@@ -75,7 +80,7 @@ else:
 class BehaviorAcquisitionApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("pyBEHAVIOR_v6")
+        self.title("pyBEHAVIOR_v7")
         screen_height = self.winfo_screenheight()
         self.geometry(f"1120x{int(screen_height * 0.90)}+0+0")
 
@@ -112,6 +117,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.sound_loaded = False
         self.sound_sequence = []
         self.sound_sequence_index = 0
+        self.light_sequence = []
+        self.light_sequence_index = 0
+        self.trial_stimulus_sequence = []
+        self.trial_stimulus_index = 0
+        self.current_trial_stimulus = None
         self.braincodec_sequence_loaded = False
         self.trial_index = 0
         self.acq_start_perf = None
@@ -189,7 +199,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self._build_ui()
         self.generate_sequence(log=False)
         self.after(50, self._drain_plot_queue)
-        self.log("pyBEHAVIOR_v6 ready.")
+        self.log("pyBEHAVIOR_v7 ready.")
         if nidaqmx is None:
             self.log("nidaqmx not available: hardware acquisition/output will use simulation or be disabled.")
         if loadmat is None:
@@ -289,7 +299,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.behavior_rule_var = tk.StringVar(value="")
         self.left_valve_var = tk.StringVar(value="")
         self.right_valve_var = tk.StringVar(value="")
-        self.sound_ttl_var = tk.StringVar(value="")
+        self.light_ttl_var = tk.StringVar(value="")
         ttk.Label(trig, text="Trigger").grid(row=0, column=0, padx=(4, 4))
         ttk.Combobox(trig, textvariable=self.trigger_type, values=("IRFork", "Lick", "None"), width=9).grid(row=0, column=1)
         ttk.Checkbutton(trig, text="Write BehaviorSignal.bin", variable=self.write_behavior_signal_bin).grid(row=0, column=2, padx=8)
@@ -310,7 +320,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         ttk.Label(trig, textvariable=self.behavior_rule_var).grid(row=2, column=4, columnspan=6, padx=6, pady=(2, 4), sticky="w")
         ttk.Label(trig, textvariable=self.left_valve_var).grid(row=3, column=0, columnspan=4, padx=6, pady=(0, 4), sticky="w")
         ttk.Label(trig, textvariable=self.right_valve_var).grid(row=3, column=4, columnspan=6, padx=6, pady=(0, 4), sticky="w")
-        ttk.Label(trig, textvariable=self.sound_ttl_var).grid(row=4, column=0, columnspan=6, padx=6, pady=(0, 4), sticky="w")
+        ttk.Label(trig, textvariable=self.light_ttl_var).grid(row=4, column=0, columnspan=6, padx=6, pady=(0, 4), sticky="w")
 
         body = ttk.Frame(root)
         body.grid(row=4, column=0, sticky="nsew")
@@ -515,38 +525,72 @@ class BehaviorAcquisitionApp(tk.Tk):
         return ""
 
     def use_braincodec_trials(self, codes, path):
-        mapping = {0: 0, 1: 1, 2: 10}
-        behavior_sequence = [mapping.get(int(float(code)), 10) for code in codes]
-        self.sound_sequence = behavior_sequence
+        stimuli = self.parse_trial_stimuli(codes)
+        self.trial_stimulus_sequence = stimuli
+        self.trial_stimulus_index = 0
+        self.light_sequence = [stimulus["light_code"] for stimulus in stimuli]
+        self.light_sequence_index = 0
+        self.sound_sequence = [stimulus["sound_id"] for stimulus in stimuli]
         self.sound_sequence_index = 0
         self.braincodec_sequence_loaded = True
-        self.sequence_length.set(str(len(behavior_sequence)))
-        self.sequence_values.set("1 10 0")
-        total = max(1, len(behavior_sequence))
-        go_behavior_count = sum(1 for value in behavior_sequence if value == 1)
-        nogo_behavior_count = sum(1 for value in behavior_sequence if value == 10)
-        blank_behavior_count = sum(1 for value in behavior_sequence if value == 0)
+        self.sequence_length.set(str(len(stimuli)))
+        self.sequence_values.set("1 2 0")
+        total = max(1, len(stimuli))
+        go_count = sum(1 for stimulus in stimuli if stimulus["light_code"] == 1)
+        blank_count = sum(1 for stimulus in stimuli if stimulus["light_code"] == 0)
+        nogo_count = len(stimuli) - go_count - blank_count
         self.sequence_weights.set(
-            f"{go_behavior_count / total:.4g} {nogo_behavior_count / total:.4g} {blank_behavior_count / total:.4g}"
+            f"{go_count / total:.4g} {nogo_count / total:.4g} {blank_count / total:.4g}"
         )
-        self.max_trials.set(str(len(behavior_sequence)))
-        if behavior_sequence:
-            self.sound_id.set(str(behavior_sequence[0]))
+        self.max_trials.set(str(len(stimuli)))
+        if stimuli:
+            self.sound_id.set(str(stimuli[0]["sound_id"]))
         self.update_sequence_display()
-
-        go_count = sum(1 for code in codes if int(float(code)) == 1)
-        nogo_count = sum(1 for code in codes if int(float(code)) == 2)
-        blank_count = sum(1 for code in codes if int(float(code)) == 0)
         self.log(
-            "Behavior sequence updated from Braincodec trials file: "
-            f"{path} ({len(behavior_sequence)} trials; "
-            f"Braincodec 1->sound 1 GO={go_count}, "
-            f"2->sound 10 NO-GO={nogo_count}, 0->blank={blank_count})."
+            "Behavior stimulus sequence updated from Braincodec trials file: "
+            f"{path} ({len(stimuli)} trials; "
+            f"LightCode 1 GO={go_count}, other nonzero noGo={nogo_count}, "
+            f"LightCode 0 blank={blank_count}; SoundId is independent)."
         )
         if getattr(self, "braincodec_panel", None) is not None:
             self.braincodec_panel.add_log_line(
-                f"Behavior tab sequence updated ({len(behavior_sequence)} trials; 1->1, 2->10, 0->blank)"
+                f"Behavior tab stimulus sequence updated ({len(stimuli)} trials; LightCode and SoundId are independent)"
             )
+
+    def parse_trial_stimuli(self, rows):
+        stimuli = []
+        for row in rows:
+            if isinstance(row, dict):
+                light_code = row.get("light_code", row.get("LightCode", row.get("code", 0)))
+                sound_id = row.get("sound_id", row.get("SoundId", 0))
+            elif isinstance(row, (list, tuple)):
+                light_code = row[0] if len(row) > 0 else 0
+                sound_id = row[1] if len(row) > 1 else 0
+            else:
+                light_code = row
+                sound_id = 0
+            stimuli.append(self.make_trial_stimulus(light_code, sound_id))
+        return stimuli
+
+    def make_trial_stimulus(self, light_code=0, sound_id=0):
+        light_code = int(float(light_code or 0))
+        sound_id = int(float(sound_id or 0))
+        trial_type_id, trial_type = self.classify_light_code(light_code)
+        if light_code and sound_id:
+            stimulus_mode = "light_sound"
+        elif light_code:
+            stimulus_mode = "light_only"
+        elif sound_id:
+            stimulus_mode = "sound_only"
+        else:
+            stimulus_mode = "blank"
+        return {
+            "light_code": light_code,
+            "sound_id": sound_id,
+            "trial_type_id": trial_type_id,
+            "trial_type": trial_type,
+            "stimulus_mode": stimulus_mode,
+        }
 
     def _file_row(self, parent, row, label, var, command):
         line = ttk.Frame(parent)
@@ -615,7 +659,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         device = self.device.get().strip() or "Dev1"
         self.left_valve_var.set(f"Left valve: {device}/port2/line6")
         self.right_valve_var.set(f"Right valve: {device}/port2/line7")
-        self.sound_ttl_var.set(f"Sound TTL: {self.get_sound_ttl_line()}")
+        self.light_ttl_var.set(f"Light trigger TTL: {self.get_light_ttl_line()}")
 
     def update_health_readouts(self, payload=None):
         if not hasattr(self, "health_rate_var"):
@@ -1070,7 +1114,7 @@ class BehaviorAcquisitionApp(tk.Tk):
     def get_lever_lick_channel_name(self):
         return "ai0"
 
-    def get_sound_ttl_line(self):
+    def get_light_ttl_line(self):
         device = self.device.get().strip() or "Dev1"
         return f"{device}/port0/line2"
 
@@ -1164,10 +1208,13 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.last_callback_duration_s = 0.0
         self.last_observed_rate_hz = 0.0
         self.ensure_sequence_controls()
-        if self.braincodec_sequence_loaded and self.sound_sequence:
+        if self.braincodec_sequence_loaded and self.trial_stimulus_sequence:
+            self.trial_stimulus_index = 0
+            self.light_sequence_index = 0
             self.sound_sequence_index = 0
+            self.current_trial_stimulus = None
             self.update_sequence_display()
-            self.log("Using Braincodec-generated behavior sequence for this session.")
+            self.log("Using Braincodec-generated light/sound stimulus sequence for this session.")
         else:
             self.generate_sequence(log=False)
         self.active_trial_index = None
@@ -1229,7 +1276,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.log("Simulation mode enabled: generated IR crossings will be used.")
         else:
             self.setup_tasks()
-        if self.play_sound_on_crossing.get() and not self.is_tac_pretraining_task():
+        if self.play_sound_on_crossing.get() and not self.is_tac_pretraining_task() and self.sequence_has_sound():
             self.load_sound_file()
         self.acq_thread = threading.Thread(target=self.acquisition_loop, daemon=True)
         self.acq_thread.start()
@@ -1275,6 +1322,11 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.log_text.delete("1.0", tk.END)
         self.dropped_plot_frame_count = 0
         self.update_health_readouts()
+
+    def sequence_has_sound(self):
+        if self.trial_stimulus_sequence:
+            return any(int(stimulus.get("sound_id", 0) or 0) > 0 for stimulus in self.trial_stimulus_sequence)
+        return True
 
     def acquisition_loop(self):
         rate = self.parse_float(self.rate_hz, 1000)
@@ -1627,7 +1679,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "RewardProb": self.reward_go.get(),
             "LeftRewardLine": "port2/line6",
             "RightRewardLine": "port2/line7" if self.is_tac_family_task() else "",
-            "SoundTTLLine": "port0/line2",
+            "LightTTLLine": "port0/line2",
             "Pavlov": self.pavlov.get(),
             "PunishNoGoFA": self.punish_no_go_fa.get(),
             "Minlickcount": self.min_lick_count.get(),
@@ -1700,7 +1752,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "RewardProb",
             "LeftRewardLine",
             "RightRewardLine",
-            "SoundTTLLine",
+            "LightTTLLine",
             "Pavlov",
             "PunishNoGoFA",
             "Minlickcount",
@@ -1726,10 +1778,24 @@ class BehaviorAcquisitionApp(tk.Tk):
             for key in keys:
                 f.write(f"{key}={params[key]}\n")
 
-    def create_trial(self, sound_id, trigger_time_s, threshold, iti, trial_test_sound_id=None, trial_type_id=None, trial_type=None):
+    def create_trial(self, sound_id, trigger_time_s, threshold, iti, trial_test_sound_id=None, trial_type_id=None, trial_type=None, stimulus=None):
         self.trial_index += 1
+        if stimulus is None:
+            if self.braincodec_sequence_loaded and not self.is_lever_task() and not self.is_dmts_task() and not self.is_tac_family_task():
+                stimulus = self.current_trial_stimulus
+        if stimulus is None:
+            stimulus = {
+                "light_code": "",
+                "sound_id": int(sound_id or 0),
+                "trial_type_id": None,
+                "trial_type": "",
+                "stimulus_mode": "sound_only" if int(sound_id or 0) > 0 else "blank",
+            }
+        sound_id = int(stimulus.get("sound_id", sound_id or 0))
+        light_code = stimulus.get("light_code", "")
+        stimulus_mode = stimulus.get("stimulus_mode", "")
         if trial_type_id is None or trial_type is None:
-            trial_type_id, trial_type = self.classify_trial_sound(sound_id, trial_test_sound_id)
+            trial_type_id, trial_type = self.classify_trial_stimulus(stimulus, sound_id, trial_test_sound_id)
         timestamp = datetime.now().isoformat(timespec="milliseconds")
         rate = self.parse_float(self.rate_hz, 1000)
         trigger_sample = int(round(trigger_time_s * rate))
@@ -1747,7 +1813,9 @@ class BehaviorAcquisitionApp(tk.Tk):
             "CR": "",
             "FA": "",
             "ResultType": "",
+            "light_code": light_code,
             "sound_id": sound_id,
+            "stimulus_mode": stimulus_mode,
             "sample_sound_id": sound_id if self.is_dmts_task() else params["SampleSoundId"],
             "test_sound_id": trial_test_sound_id if self.is_dmts_task() and trial_test_sound_id is not None else params["TestSoundId"],
             "lick_count": "",
@@ -1759,7 +1827,9 @@ class BehaviorAcquisitionApp(tk.Tk):
         parameter_row = {
             "trial": self.trial_index,
             "timestamp": timestamp,
+            "light_code": light_code,
             "sound_id": sound_id,
+            "stimulus_mode": stimulus_mode,
             "trigger_time_s": f"{trigger_time_s:.6f}",
             "trigger_sample": trigger_sample,
             "task_type": params["TaskType"],
@@ -1793,7 +1863,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "reward_prob": params["RewardProb"],
             "left_reward_line": params["LeftRewardLine"],
             "right_reward_line": params["RightRewardLine"],
-            "sound_ttl_line": params["SoundTTLLine"],
+            "light_ttl_line": params["LightTTLLine"],
             "pavlov": params["Pavlov"],
             "punish_no_go_fa": params["PunishNoGoFA"],
             "min_lick_count": params["Minlickcount"],
@@ -1869,15 +1939,31 @@ class BehaviorAcquisitionApp(tk.Tk):
         if max_trials and self.trial_index >= max_trials:
             self.plot_queue.put(("log", f"Trial start ignored: max trials {max_trials} reached."))
             return False
-        sound_id = self.consume_next_sound_id() if self.play_sound_on_crossing.get() else self.parse_int(self.sound_id, 1)
+        stimulus = self.consume_next_trial_stimulus()
+        sound_id = int(stimulus["sound_id"])
         iti = self.draw_trial_iti_s()
-        self.create_trial(sound_id, trial_start_s, threshold, iti)
+        self.create_trial(
+            sound_id,
+            trial_start_s,
+            threshold,
+            iti,
+            trial_type_id=stimulus["trial_type_id"],
+            trial_type=stimulus["trial_type"],
+            stimulus=stimulus,
+        )
         self.start_active_trial(trial_start_s, iti)
-        if self.play_sound_on_crossing.get():
+        if self.braincodec_sequence_loaded:
+            self.send_light_trigger_pulse(from_worker=True)
+        if self.play_sound_on_crossing.get() and sound_id > 0:
             self.play_loaded_sound(sound_id=sound_id, from_worker=True, start_s=trial_start_s)
         self.last_trigger_time = trial_start_s
-        trial_type_id, trial_type = self.classify_trial_sound(sound_id)
-        self.plot_queue.put(("log", f"{start_reason}. Trial {self.trial_index} is type {trial_type_id} {trial_type}, sound id {sound_id}."))
+        trial_type_id, trial_type = stimulus["trial_type_id"], stimulus["trial_type"]
+        light_code = stimulus["light_code"]
+        self.plot_queue.put((
+            "log",
+            f"{start_reason}. Trial {self.trial_index} is type {trial_type_id} {trial_type}, "
+            f"LightCode {light_code}, SoundId {sound_id}.",
+        ))
         return True
 
     def start_active_trial(self, trigger_time_s, iti_s):
@@ -3000,10 +3086,48 @@ class BehaviorAcquisitionApp(tk.Tk):
             return 2, "noGo"
         return 0, "unknown"
 
+    def classify_light_code(self, light_code):
+        light_code = int(float(light_code or 0))
+        if light_code == 1:
+            return 1, "GO"
+        if light_code == 0:
+            return 0, "BLANK"
+        return 2, "noGo"
+
+    def classify_trial_stimulus(self, stimulus, fallback_sound_id=0, test_sound_id=None):
+        if stimulus:
+            if self.braincodec_sequence_loaded:
+                return int(stimulus["trial_type_id"]), str(stimulus["trial_type"])
+            return self.classify_trial_sound(int(stimulus["sound_id"]), test_sound_id)
+        return self.classify_trial_sound(fallback_sound_id, test_sound_id)
+
     def update_trial_display(self, sound_id, trial_type_id, trial_type):
         self.current_trial_var.set(str(self.trial_index))
         self.last_trial_sound_var.set(str(sound_id))
         self.last_trial_type_var.set(f"{trial_type_id} {trial_type}")
+
+    def send_light_trigger_pulse(self, from_worker=False):
+        pulse_s = max(0, self.parse_float(self.pulse_ms, 50) / 1000.0)
+        line_name = self.get_light_ttl_line()
+        try:
+            if nidaqmx is None:
+                msg = f"Light trigger simulated on {line_name} for {pulse_s * 1000:g} ms."
+            else:
+                task = nidaqmx.Task()
+                try:
+                    task.do_channels.add_do_chan(line_name, line_grouping=LineGrouping.CHAN_PER_LINE)
+                    task.write(True)
+                    time.sleep(pulse_s)
+                    task.write(False)
+                    msg = f"Light trigger sent on {line_name} for {pulse_s * 1000:g} ms."
+                finally:
+                    task.close()
+        except Exception as exc:
+            msg = f"Light trigger error on {line_name}: {exc}"
+        if from_worker:
+            self.plot_queue.put(("log", msg))
+        else:
+            self.log(msg)
 
     def send_output_pulse(self, from_worker=False, start_s=None, reward_side="left"):
         pulse_s = max(0, self.parse_float(self.pulse_ms, 50) / 1000.0)
@@ -3160,6 +3284,8 @@ class BehaviorAcquisitionApp(tk.Tk):
     def play_loaded_sound(self, use_sequence=False, from_worker=False, sound_id=None, start_s=None):
         if sound_id is None:
             sound_id = self.consume_next_sound_id() if use_sequence else self.parse_int(self.sound_id, 1)
+        if int(sound_id or 0) <= 0:
+            return 0.0
         signal = self.get_sound_by_id(sound_id)
         if signal is None:
             return None
@@ -3176,9 +3302,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         try:
             self.record_sound_output(signal, fs, sound_id, start_s=start_s)
             if nidaqmx is not None:
-                ttl_ok = self.play_sound_on_ni(signal, fs)
-                if not ttl_ok:
-                    msg += " Sound TTL on port0/line2 was not available."
+                self.play_sound_on_ni(signal, fs)
             elif sd is not None:
                 sd.play(signal, fs, blocking=False)
             else:
@@ -3212,47 +3336,25 @@ class BehaviorAcquisitionApp(tk.Tk):
     def play_sound_on_ni(self, signal, fs):
         device = self.device.get().strip() or "Dev1"
         task = nidaqmx.Task()
-        ttl_task = None
-        ttl_ok = False
         try:
-            try:
-                ttl_task = nidaqmx.Task()
-                ttl_task.do_channels.add_do_chan(self.get_sound_ttl_line(), line_grouping=LineGrouping.CHAN_PER_LINE)
-                ttl_task.write(False)
-                ttl_ok = True
-            except Exception:
-                if ttl_task is not None:
-                    try:
-                        ttl_task.close()
-                    except Exception:
-                        pass
-                ttl_task = None
-                ttl_ok = False
             task.ao_channels.add_ao_voltage_chan(f"{device}/ao0")
             task.timing.cfg_samp_clk_timing(fs, sample_mode=AcquisitionType.FINITE, samps_per_chan=len(signal))
             values = signal.tolist() if hasattr(signal, "tolist") else list(signal)
             task.write(values, auto_start=False)
-            if ttl_task is not None:
-                ttl_task.write(True)
             task.start()
             task.wait_until_done(timeout=max(2.0, len(values) / fs + 1.0))
             task.stop()
         finally:
-            if ttl_task is not None:
-                try:
-                    ttl_task.write(False)
-                except Exception:
-                    pass
-                try:
-                    ttl_task.close()
-                except Exception:
-                    pass
             task.close()
-        return ttl_ok
 
     def generate_sequence(self, log=True):
         self.ensure_sequence_controls()
         self.braincodec_sequence_loaded = False
+        self.light_sequence = []
+        self.light_sequence_index = 0
+        self.trial_stimulus_sequence = []
+        self.trial_stimulus_index = 0
+        self.current_trial_stimulus = None
         length = max(1, self.parse_int(self.sequence_length, 300))
         default_values = [1, 2] if self.is_dmts_task() else [1, 10]
         values = self._parse_number_list(self.sequence_values.get(), default=default_values, cast=int)
@@ -3295,6 +3397,14 @@ class BehaviorAcquisitionApp(tk.Tk):
             self.sound_sequence = []
         if not hasattr(self, "sound_sequence_index"):
             self.sound_sequence_index = 0
+        if not hasattr(self, "light_sequence"):
+            self.light_sequence = []
+        if not hasattr(self, "light_sequence_index"):
+            self.light_sequence_index = 0
+        if not hasattr(self, "trial_stimulus_sequence"):
+            self.trial_stimulus_sequence = []
+        if not hasattr(self, "trial_stimulus_index"):
+            self.trial_stimulus_index = 0
 
     def _parse_number_list(self, text, default, cast):
         try:
@@ -3304,6 +3414,14 @@ class BehaviorAcquisitionApp(tk.Tk):
             return list(default)
 
     def update_sequence_display(self):
+        if self.trial_stimulus_sequence:
+            self.sequence_index_var.set(str(self.trial_stimulus_index + 1))
+            stimulus = self.trial_stimulus_sequence[self.trial_stimulus_index]
+            self.sequence_next_var.set(
+                f"L{stimulus['light_code']} S{stimulus['sound_id']} {stimulus['trial_type']}"
+            )
+            self.sound_id.set(str(stimulus["sound_id"]))
+            return
         if not self.sound_sequence:
             self.sequence_index_var.set("0")
             self.sequence_next_var.set(self.sound_id.get())
@@ -3316,6 +3434,29 @@ class BehaviorAcquisitionApp(tk.Tk):
         else:
             self.sequence_next_var.set(str(next_id))
             self.sound_id.set(str(next_id))
+
+    def consume_next_trial_stimulus(self):
+        if self.trial_stimulus_sequence:
+            stimulus = self.trial_stimulus_sequence[self.trial_stimulus_index]
+            self.current_trial_stimulus = stimulus
+            self.trial_stimulus_index += 1
+            self.light_sequence_index = self.trial_stimulus_index
+            self.sound_sequence_index = self.trial_stimulus_index
+            if self.trial_stimulus_index >= len(self.trial_stimulus_sequence):
+                self.trial_stimulus_index = 0
+                self.light_sequence_index = 0
+                self.sound_sequence_index = 0
+                self.plot_queue.put(("log", "Trial stimulus sequence wrapped to the beginning."))
+            self.after(0, self.update_sequence_display)
+            return stimulus
+
+        sound_id = self.consume_next_sound_id() if self.play_sound_on_crossing.get() else self.parse_int(self.sound_id, 1)
+        stimulus = self.make_trial_stimulus(0, sound_id)
+        trial_type_id, trial_type = self.classify_trial_sound(sound_id)
+        stimulus["trial_type_id"] = trial_type_id
+        stimulus["trial_type"] = trial_type
+        self.current_trial_stimulus = stimulus
+        return stimulus
 
     def consume_next_sound_id(self):
         if not self.sound_sequence:
@@ -3619,7 +3760,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("RewardProb", params["RewardProb"]),
             ("LeftRewardLine", params["LeftRewardLine"]),
             ("RightRewardLine", params["RightRewardLine"]),
-            ("SoundTTLLine", params["SoundTTLLine"]),
+            ("LightTTLLine", params["LightTTLLine"]),
             ("Pavlov", params["Pavlov"]),
             ("PunishNoGoFA", params["PunishNoGoFA"]),
             ("Minlickcount", params["Minlickcount"]),
