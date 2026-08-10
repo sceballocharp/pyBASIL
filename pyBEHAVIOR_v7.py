@@ -291,6 +291,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.play_sound_on_crossing = tk.BooleanVar(value=True)
         self.threshold_v = tk.StringVar(value="1")
         self.pulse_ms = tk.StringVar(value="50")
+        self.light_ttl_pulse_ms = tk.StringVar(value="200")
         self.sound_id = tk.StringVar(value="1")
         self.sound_level = tk.StringVar(value="1")
         self.lever_require_release = tk.BooleanVar(value=False)
@@ -311,6 +312,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self._entry(trig, 9, "Pulse ms", self.pulse_ms, width=6)
         self._entry(trig, 0, "Sound id", self.sound_id, width=6, row=1)
         self._entry(trig, 2, "Level", self.sound_level, width=6, row=1)
+        self._entry(trig, 7, "Light TTL ms", self.light_ttl_pulse_ms, width=6, row=1)
         ttk.Button(trig, text="Test Sound", command=lambda: self.play_loaded_sound(use_sequence=False)).grid(row=1, column=4, padx=8, pady=4)
         self.lever_release_check = ttk.Checkbutton(trig, text="Require release", variable=self.lever_require_release)
         self.lever_release_check.grid(row=1, column=5, padx=8, pady=4, sticky="w")
@@ -999,6 +1001,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "ResponseWindow_s": self.response_window_s,
             "RewardDelay_s": self.reward_delay_s,
             "Rewardduration_ms": self.pulse_ms,
+            "LightTTLPulse_ms": self.light_ttl_pulse_ms,
             "RewardProb": self.reward_go,
             "HIT": self.hit_threshold_s,
             "HITThreshold_percent": self.hit_threshold_s,
@@ -1673,6 +1676,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "ResponseWindow_s": self.response_window_s.get(),
             "RewardDelay_s": self.reward_delay_s.get(),
             "Rewardduration_ms": self.pulse_ms.get(),
+            "LightTTLPulse_ms": self.light_ttl_pulse_ms.get(),
             "HIT": self.hit_threshold_s.get(),
             "HITThreshold_percent": self.hit_threshold_s.get(),
             "RewardGo": self.reward_go.get(),
@@ -1746,6 +1750,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "ResponseWindow_s",
             "RewardDelay_s",
             "Rewardduration_ms",
+            "LightTTLPulse_ms",
             "HIT",
             "HITThreshold_percent",
             "RewardGo",
@@ -1864,6 +1869,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "left_reward_line": params["LeftRewardLine"],
             "right_reward_line": params["RightRewardLine"],
             "light_ttl_line": params["LightTTLLine"],
+            "light_ttl_pulse_ms": self.parse_float_value(params["LightTTLPulse_ms"], 200),
             "pavlov": params["Pavlov"],
             "punish_no_go_fa": params["PunishNoGoFA"],
             "min_lick_count": params["Minlickcount"],
@@ -3107,7 +3113,7 @@ class BehaviorAcquisitionApp(tk.Tk):
         self.last_trial_type_var.set(f"{trial_type_id} {trial_type}")
 
     def send_light_trigger_pulse(self, from_worker=False):
-        pulse_s = max(0, self.parse_float(self.pulse_ms, 50) / 1000.0)
+        pulse_s = max(0, self.parse_float(self.light_ttl_pulse_ms, 200) / 1000.0)
         line_name = self.get_light_ttl_line()
         try:
             if nidaqmx is None:
@@ -3761,6 +3767,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             ("LeftRewardLine", params["LeftRewardLine"]),
             ("RightRewardLine", params["RightRewardLine"]),
             ("LightTTLLine", params["LightTTLLine"]),
+            ("LightTTLPulse_ms", params["LightTTLPulse_ms"]),
             ("Pavlov", params["Pavlov"]),
             ("PunishNoGoFA", params["PunishNoGoFA"]),
             ("Minlickcount", params["Minlickcount"]),

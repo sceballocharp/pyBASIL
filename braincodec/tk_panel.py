@@ -10,6 +10,7 @@ from pathlib import Path
 import random
 import re
 import threading
+import webbrowser
 from tkinter import filedialog, ttk
 from typing import Callable, Optional
 import tkinter as tk
@@ -118,57 +119,49 @@ class BraincodecTkPanel(ttk.Frame):
         left_pane = ttk.Frame(self)
         left_pane.grid(row=0, column=0, sticky="nsew")
         left_pane.columnconfigure(0, weight=1)
-        left_pane.rowconfigure(4, weight=1)
+        left_pane.rowconfigure(6, weight=1)
 
-        controls = ttk.LabelFrame(left_pane, text="Braincodec Control")
-        controls.grid(row=0, column=0, sticky="ew")
-        controls.columnconfigure(6, weight=1)
+        board = ttk.LabelFrame(left_pane, text="1. Board Connection")
+        board.grid(row=0, column=0, sticky="ew")
+        board.columnconfigure(1, weight=1)
 
-        self.start_button = ttk.Button(controls, text="Start", command=self._handle_start)
-        self.start_button.grid(row=0, column=0, padx=4, pady=6, sticky="ew")
-
-        self.stop_button = ttk.Button(controls, text="Stop", command=self._handle_stop)
-        self.stop_button.grid(row=0, column=1, padx=4, pady=6, sticky="ew")
-
-        ttk.Button(controls, text="Simulate", command=self.simulate_session).grid(
+        ttk.Label(board, text="PYNQ runner").grid(row=0, column=0, padx=6, pady=6, sticky="w")
+        ttk.Entry(board, textvariable=self.remote_url_var, width=32).grid(
+            row=0, column=1, padx=4, pady=6, sticky="ew"
+        )
+        ttk.Button(board, text="Open Board", command=self.open_pynq_home).grid(
             row=0, column=2, padx=4, pady=6, sticky="ew"
         )
-
-        ttk.Button(controls, text="Clear Log", command=self.clear_log).grid(
+        ttk.Button(board, text="Remote Status", command=self.check_remote_status).grid(
             row=0, column=3, padx=4, pady=6, sticky="ew"
         )
-
-        ttk.Label(controls, text="Status").grid(row=0, column=4, padx=(16, 4), pady=6)
-        ttk.Label(controls, textvariable=self.status_var, width=24).grid(
+        ttk.Label(board, text="Status").grid(row=0, column=4, padx=(16, 4), pady=6)
+        ttk.Label(board, textvariable=self.status_var, width=24).grid(
             row=0, column=5, padx=4, pady=6, sticky="w"
         )
-
-        self.indicator = tk.Canvas(controls, width=38, height=38, highlightthickness=0)
+        self.indicator = tk.Canvas(board, width=38, height=38, highlightthickness=0)
         self.indicator.grid(row=0, column=6, padx=8, pady=6, sticky="w")
         self._indicator_item = self.indicator.create_oval(
             5, 5, 33, 33, fill=self.indicator_color, outline="black", width=2
         )
 
-        ttk.Label(controls, text="PYNQ runner").grid(row=1, column=0, padx=4, pady=(0, 6), sticky="w")
-        ttk.Entry(controls, textvariable=self.remote_url_var, width=26).grid(
-            row=1, column=1, columnspan=2, padx=4, pady=(0, 6), sticky="ew"
+        files = ttk.LabelFrame(left_pane, text="Files")
+        files.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        files.configure(text="2. Files")
+        files.columnconfigure(1, weight=1)
+        files.columnconfigure(3, weight=0)
+
+        self._file_row(files, 0, "Config", self.config_file_var, self._browse_config)
+        self.patterns_row = self._file_row(
+            files, 1, "Patterns", self.patterns_file_var, self._browse_patterns
         )
-        ttk.Button(controls, text="Remote Start", command=self.start_remote_experiment).grid(
-            row=1, column=3, padx=4, pady=(0, 6), sticky="ew"
-        )
-        ttk.Button(controls, text="Remote Stop", command=self.stop_remote_experiment).grid(
-            row=1, column=4, padx=4, pady=(0, 6), sticky="ew"
-        )
-        ttk.Button(controls, text="Remote Status", command=self.check_remote_status).grid(
-            row=1, column=5, padx=4, pady=(0, 6), sticky="ew"
-        )
-        ttk.Button(controls, text="Upload Files", command=self.upload_remote_files).grid(
-            row=1, column=6, padx=4, pady=(0, 6), sticky="ew"
+        ttk.Button(files, text="Validate", command=self.validate_config_flow).grid(
+            row=0, column=3, rowspan=2, padx=6, pady=4, sticky="nsew"
         )
 
-        mode = ttk.LabelFrame(left_pane, text="Experiment Type")
+        mode = ttk.LabelFrame(left_pane, text="3. Experiment Settings")
         mode.grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        mode.columnconfigure(3, weight=1)
+        mode.columnconfigure(4, weight=1)
         ttk.Radiobutton(
             mode,
             text=MODE_LABELS[MODE_SIMPLE],
@@ -183,36 +176,21 @@ class BraincodecTkPanel(ttk.Frame):
             variable=self.mode_var,
             command=self._on_mode_changed,
         ).grid(row=0, column=1, padx=6, pady=6, sticky="w")
-        ttk.Button(mode, text="Detect From Config", command=self.detect_mode_from_config).grid(
-            row=0, column=2, padx=6, pady=6, sticky="ew"
-        )
-        ttk.Button(mode, text="Validate Config", command=self.validate_config).grid(
-            row=0, column=3, padx=6, pady=6, sticky="w"
-        )
         ttk.Checkbutton(
             mode,
             text="Wait for trigger",
             variable=self.wait_for_trigger_var,
-        ).grid(row=1, column=0, padx=6, pady=(0, 6), sticky="w")
+        ).grid(row=0, column=2, padx=6, pady=6, sticky="w")
         ttk.Checkbutton(
             mode,
             text="Extension cables used",
             variable=self.ext_cables_used_var,
-        ).grid(row=1, column=1, padx=6, pady=(0, 6), sticky="w")
+        ).grid(row=0, column=3, padx=6, pady=6, sticky="w")
 
-        files = ttk.LabelFrame(left_pane, text="Files")
-        files.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        files.columnconfigure(1, weight=1)
-
-        self._file_row(files, 0, "Config", self.config_file_var, self._browse_config)
-        self._file_row(files, 1, "Trials", self.trials_file_var, self._browse_trials)
-        self.patterns_row = self._file_row(
-            files, 2, "Patterns", self.patterns_file_var, self._browse_patterns
-        )
-
-        generator = ttk.LabelFrame(left_pane, text="Generate Trials .dat")
+        generator = ttk.LabelFrame(left_pane, text="4. Trial Sequence")
         generator.grid(row=3, column=0, sticky="ew", pady=(8, 0))
-        generator.columnconfigure(9, weight=1)
+        generator.columnconfigure(1, weight=1)
+        generator.columnconfigure(8, weight=1)
         ttk.Label(generator, text="Trials").grid(row=0, column=0, padx=(6, 4), pady=6, sticky="w")
         ttk.Entry(generator, textvariable=self.generated_trial_count_var, width=7).grid(
             row=0, column=1, padx=(0, 8), pady=6, sticky="w"
@@ -236,8 +214,42 @@ class BraincodecTkPanel(ttk.Frame):
         ttk.Button(generator, text="Generate .dat", command=self.generate_trials_file).grid(
             row=0, column=8, padx=4, pady=6, sticky="ew"
         )
-        ttk.Button(generator, text="Generate + Upload", command=self.generate_and_upload_trials).grid(
-            row=0, column=9, padx=(4, 6), pady=6, sticky="ew"
+        ttk.Label(generator, text="Trial file").grid(row=1, column=0, sticky="w", padx=6, pady=(0, 6))
+        ttk.Entry(generator, textvariable=self.trials_file_var).grid(
+            row=1, column=1, columnspan=7, sticky="ew", padx=4, pady=(0, 6)
+        )
+        ttk.Button(generator, text="Use Existing .dat", command=self._browse_trials).grid(
+            row=1, column=8, padx=4, pady=(0, 6), sticky="ew"
+        )
+
+        upload = ttk.LabelFrame(left_pane, text="5. Upload To Board")
+        upload.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        upload.columnconfigure(2, weight=1)
+        ttk.Button(upload, text="Upload Files", command=self.upload_remote_files).grid(
+            row=0, column=0, padx=6, pady=6, sticky="ew"
+        )
+        ttk.Label(upload, textvariable=self.info_var).grid(
+            row=0, column=1, columnspan=2, sticky="w", padx=6, pady=6
+        )
+
+        arm = ttk.LabelFrame(left_pane, text="6. Arm Board")
+        arm.grid(row=5, column=0, sticky="ew", pady=(8, 0))
+        arm.columnconfigure(5, weight=1)
+        ttk.Button(arm, text="Remote Start", command=self.start_remote_experiment).grid(
+            row=0, column=0, padx=6, pady=6, sticky="ew"
+        )
+        ttk.Button(arm, text="Remote Stop", command=self.stop_remote_experiment).grid(
+            row=0, column=1, padx=4, pady=6, sticky="ew"
+        )
+        ttk.Button(arm, text="Simulate", command=self.simulate_session).grid(
+            row=0, column=2, padx=4, pady=6, sticky="ew"
+        )
+        self.start_button = ttk.Button(arm, text="Local Start", command=self._handle_start)
+        self.start_button.grid(row=0, column=3, padx=4, pady=6, sticky="ew")
+        self.stop_button = ttk.Button(arm, text="Local Stop", command=self._handle_stop)
+        self.stop_button.grid(row=0, column=4, padx=4, pady=6, sticky="ew")
+        ttk.Label(arm, text="Then go to Behavior tab and press Start.").grid(
+            row=0, column=5, padx=8, pady=6, sticky="w"
         )
 
         preview = ttk.LabelFrame(self, text="Pattern Preview")
@@ -245,8 +257,8 @@ class BraincodecTkPanel(ttk.Frame):
         preview.columnconfigure(0, weight=1)
         self._build_pattern_preview(preview)
 
-        runtime = ttk.LabelFrame(left_pane, text="Run")
-        runtime.grid(row=4, column=0, sticky="nsew", pady=(8, 0))
+        runtime = ttk.LabelFrame(left_pane, text="Run Log")
+        runtime.grid(row=6, column=0, sticky="nsew", pady=(8, 0))
         runtime.columnconfigure(0, weight=1)
         runtime.rowconfigure(3, weight=1)
 
@@ -258,7 +270,7 @@ class BraincodecTkPanel(ttk.Frame):
         )
         self.progress.grid(row=0, column=0, sticky="ew", padx=6, pady=(8, 4))
 
-        ttk.Label(runtime, textvariable=self.info_var).grid(
+        ttk.Button(runtime, text="Clear Log", command=self.clear_log).grid(
             row=1, column=0, sticky="w", padx=6, pady=(0, 6)
         )
 
@@ -302,18 +314,25 @@ class BraincodecTkPanel(ttk.Frame):
         self._browse_file(self.config_file_var, [("YAML files", "*.yaml *.yml"), ("All files", "*.*")])
 
     def _browse_trials(self) -> None:
-        self._browse_file(self.trials_file_var, [("Trial files", "*.txt *.dat *.csv"), ("All files", "*.*")])
+        selected = self._browse_file(
+            self.trials_file_var,
+            [("Trial files", "*.txt *.dat *.csv"), ("All files", "*.*")],
+        )
+        if selected:
+            self._notify_trials_file_selected(Path(selected))
 
     def _browse_patterns(self) -> None:
         self._browse_file(self.patterns_file_var, [("NumPy pattern files", "*.npy"), ("All files", "*.*")])
 
-    def _browse_file(self, variable: tk.StringVar, filetypes) -> None:
+    def _browse_file(self, variable: tk.StringVar, filetypes) -> Optional[str]:
         initialdir = self._initial_dir(variable.get())
         selected = filedialog.askopenfilename(parent=self, initialdir=initialdir, filetypes=filetypes)
         if selected:
             variable.set(selected)
             if variable is self.config_file_var:
                 self.detect_mode_from_config()
+            return selected
+        return None
 
     @staticmethod
     def _initial_dir(current_value: str) -> str:
@@ -382,7 +401,7 @@ class BraincodecTkPanel(ttk.Frame):
         }
 
     def start_remote_experiment(self) -> None:
-        if not self.validate_config():
+        if not self.validate_config_flow():
             return
         payload = self._build_remote_payload()
         if payload is None:
@@ -409,9 +428,26 @@ class BraincodecTkPanel(ttk.Frame):
         self.add_log_line(f"Uploading {len(payload['files'])} file(s) to PYNQ")
         self._run_remote_request("POST", "/upload", payload)
 
-    def generate_and_upload_trials(self) -> None:
-        if self.generate_trials_file():
-            self.upload_remote_files()
+    def open_pynq_home(self) -> None:
+        url = self._pynq_home_url()
+        try:
+            webbrowser.open(url)
+        except Exception as exc:
+            self.add_log_line(f"Could not open PYNQ page: {exc}")
+            self.set_status("Open page failed")
+            return
+        self.add_log_line(f"Opened PYNQ page: {url}")
+
+    def _pynq_home_url(self) -> str:
+        remote_url = self.remote_url_var.get().strip()
+        if not remote_url:
+            return "http://192.168.2.99:9090/lab"
+        if "://" not in remote_url:
+            remote_url = f"http://{remote_url}"
+        parsed = urllib_parse.urlparse(remote_url)
+        scheme = parsed.scheme or "http"
+        hostname = parsed.hostname or "192.168.2.99"
+        return f"{scheme}://{hostname}:9090/lab"
 
     def generate_trials_file(self) -> bool:
         try:
@@ -477,6 +513,16 @@ class BraincodecTkPanel(ttk.Frame):
             self.add_log_line("Behavior sequence updated from Braincodec trials")
         except Exception as exc:
             self.add_log_line(f"Could not update Behavior sequence: {exc}")
+
+    def _notify_trials_file_selected(self, path: Path) -> None:
+        trials = self._read_trials()
+        if not trials:
+            return
+        stimuli = [{"light_code": int(float(code)), "sound_id": 0} for code in trials]
+        self.set_progress(0, maximum=len(stimuli))
+        self.set_status("Trials selected")
+        self.add_log_line(f"Selected trials file: {path.name} ({len(stimuli)} trials)")
+        self._notify_trials_generated(stimuli, path)
 
     def _generated_secondary_percent_var(self) -> tk.StringVar:
         if self.mode_var.get() == MODE_BRAINCODEC:
@@ -761,11 +807,19 @@ class BraincodecTkPanel(ttk.Frame):
         if log_response:
             self.add_log_line(f"Remote state: {state}" + (f" | {message}" if message else ""))
 
-        if state in {"starting", "loading", "running", "stopping"}:
+        if self._is_waiting_for_trigger(state, message):
+            self._stop_remote_status_polling()
+        elif state in {"starting", "loading", "running", "stopping"}:
             self._schedule_remote_status_poll()
         else:
             self._stop_remote_status_polling()
             self._download_remote_log_if_available(status)
+
+    @staticmethod
+    def _is_waiting_for_trigger(state: str, message: str) -> bool:
+        normalized_state = str(state or "").strip().lower()
+        normalized_message = str(message or "").strip().lower()
+        return normalized_state == "running" and normalized_message == "waiting for trigger"
 
     @staticmethod
     def _remote_status_text(state: str, message: str) -> str:
@@ -870,6 +924,12 @@ class BraincodecTkPanel(ttk.Frame):
         self.set_status("Config not recognized")
         return None
 
+    def validate_config_flow(self) -> bool:
+        detected_mode = self.detect_mode_from_config()
+        if detected_mode is None:
+            return False
+        return self.validate_config()
+
     def validate_config(self) -> bool:
         config = self._read_config()
         if config is None:
@@ -930,7 +990,7 @@ class BraincodecTkPanel(ttk.Frame):
         self._draw_empty_pattern_preview(message)
 
     def simulate_session(self) -> None:
-        if not self.validate_config():
+        if not self.validate_config_flow():
             return
 
         trials = self._read_trials()
@@ -1194,7 +1254,7 @@ class BraincodecTkPanel(ttk.Frame):
             self.set_info("Braincodec patterns: use YAML, trials, and a .npy patterns file.")
 
     def _handle_start(self) -> None:
-        if not self.validate_config():
+        if not self.validate_config_flow():
             return
         self.set_status("Starting")
         self.add_log_line("Start requested")
