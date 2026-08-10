@@ -89,6 +89,8 @@ class BraincodecRunnerState:
 
         if experiment is not None:
             try:
+                if hasattr(experiment, "_stop_requested"):
+                    experiment._stop_requested = True
                 experiment.stop_()
             except Exception as exc:
                 self.update(state="error", error=str(exc), last_message="Stop failed")
@@ -133,7 +135,7 @@ class BraincodecRunnerState:
             final_state = "stopped" if self.snapshot()["state"] == "stopping" else "finished"
             self.update(
                 state=final_state,
-                last_message="Experiment finished",
+                last_message="Experiment stopped" if final_state == "stopped" else "Experiment finished",
                 finished_at=datetime.now().isoformat(timespec="seconds"),
             )
         except Exception as exc:

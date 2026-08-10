@@ -414,6 +414,7 @@ class BraincodecTkPanel(ttk.Frame):
     def stop_remote_experiment(self) -> None:
         self.set_status("Remote stopping")
         self.add_log_line("Sending remote stop command")
+        self._start_remote_status_polling()
         self._run_remote_request("POST", "/stop", {})
 
     def check_remote_status(self) -> None:
