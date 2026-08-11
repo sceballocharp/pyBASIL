@@ -1,0 +1,28 @@
+# 28/05/2026
+
+mouse_id: 293
+device_id: 'H2-174'
+
+GO: 'P1N8 P2N8 P3N8 P1N9 P2N9 P3N9 P1N10 P2N10 P3N10'
+GO irradiance (mW/mm2): 2
+NOGO: 'P8N1 P9N1 P10N1 P8N2 P9N2 P10N2 P8N3 P9N3 P10N3'
+NOGO irradiance (mW/mm2): 2
+
+# Intermediate patterns not yet implemented
+INT1: 'P2N2'
+INT1 irradiance (mW/mm2): 10
+INT2: 'P1N1 P2N1 P1N2 P2N2'
+INT2 irradiance (mW/mm2): 1
+INT3: 'P5N5'
+INT3 irradiance (mW/mm2): 5
+INT4: 'P5N5'
+INT4 irradiance (mW/mm2): 3
+INT5: 'P1N1'
+INT5 irradiance (mW/mm2): 5
+INT6: 'P1N1 P1N2 P1N3'
+INT6 irradiance (mW/mm2): 5
+
+# these are typically always fixed
+Pulse duration (ms): 25
+Pulse frequency (Hz): 20
+Number of pulses: 10
