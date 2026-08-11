@@ -283,7 +283,7 @@ Each completed alternating sequence is logged as a `tAC-pretraining` HIT event i
 
 `Parameters.csv` stores one row per accepted trial. The `Block` column groups consecutive trials that used the same protocol/settings. It is intended to change only when an experiment parameter changes, not simply because a new trial starts.
 
-Trial-specific fields such as `trial`, `timestamp`, `sound_id`, `trigger_time_s`, `trigger_sample`, and the drawn per-trial `iti_s` are ignored when assigning block labels. The ITI settings (`ITI_s`, `ITIrandMin_s`, and `ITIrandMax_s`) are still part of the block signature, so changing the protocol's ITI configuration starts a new block.
+Block labels are assigned from the stable `get_current_parameters()` snapshot. Trial-specific fields such as `trial`, `timestamp`, `LightCode`, `SoundId`, per-trial sample/test IDs, `trigger_time_s`, `trigger_sample`, and the drawn per-trial `iti_s` do not split blocks. The ITI settings (`ITI_s`, `ITIrandMin_s`, and `ITIrandMax_s`) are still part of the block signature, so changing the protocol's ITI configuration starts a new block.
 
 ## Runtime Status
 

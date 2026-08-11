@@ -1883,7 +1883,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             "trigger_output": params["TriggerOutput"],
             "Block": "",
         }
-        parameter_row["Block"] = self.get_parameter_block_label(parameter_row)
+        parameter_row["Block"] = self.get_parameter_block_label(params=params)
         self.trial_rows.append(trial_row)
         self.parameter_rows.append(parameter_row)
         self.write_trial_log()
@@ -2687,14 +2687,29 @@ class BehaviorAcquisitionApp(tk.Tk):
             writer.writeheader()
             writer.writerows(rows)
 
-    def get_parameter_block_label(self, parameter_row=None):
-        if parameter_row is None:
+    def get_parameter_block_label(self, parameter_row=None, params=None):
+        if parameter_row is None and params is None:
             return f"block{max(1, self.parameter_block_index)}"
-        signature = tuple(
-            (key, parameter_row[key])
-            for key in parameter_row
-            if key not in ("Block", "trial", "timestamp", "sound_id", "trigger_time_s", "trigger_sample", "iti_s")
-        )
+        if params is not None:
+            signature = tuple((key, str(value)) for key, value in params.items())
+        else:
+            signature = tuple(
+                (key, parameter_row[key])
+                for key in parameter_row
+                if key not in (
+                    "Block",
+                    "trial",
+                    "timestamp",
+                    "light_code",
+                    "sound_id",
+                    "stimulus_mode",
+                    "sample_sound_id",
+                    "test_sound_id",
+                    "trigger_time_s",
+                    "trigger_sample",
+                    "iti_s",
+                )
+            )
         if self.current_parameter_signature != signature:
             self.parameter_block_index += 1
             self.current_parameter_signature = signature

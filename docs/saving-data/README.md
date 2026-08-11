@@ -67,7 +67,7 @@ Important fields:
 
 Parameter rows are created inside `create_trial()`. They capture the active protocol settings at trial creation time and include a `Block` label from `get_parameter_block_label()`.
 
-`Block` is intended to group trials by stable protocol settings, not by trial number.
+`Block` is intended to group trials by stable protocol settings, not by trial number. The block signature comes from `get_current_parameters()`, so per-trial stimulus values such as `LightCode` and `SoundId` do not split blocks.
 
 ## Binary Stream Contract
 

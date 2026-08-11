@@ -67,17 +67,9 @@ The recent `Pavlov` parameter follows this pattern.
 
 `Parameters.csv` contains one row per accepted trial. The `Block` field groups consecutive trials with the same settings.
 
-`get_parameter_block_label()` builds the block signature from `parameter_row`, ignoring trial-specific values:
+`get_parameter_block_label()` builds the block signature from the stable `get_current_parameters()` snapshot. Trial stimulus fields such as `LightCode`, `SoundId`, per-trial sample/test IDs, timestamps, trigger times, and the drawn per-trial `iti_s` do not create new blocks.
 
-- `Block`
-- `trial`
-- `timestamp`
-- `sound_id`
-- `trigger_time_s`
-- `trigger_sample`
-- `iti_s`
-
-This means a newly drawn random ITI does not create a new block, but changing ITI settings such as `ITI_s`, `ITIrandMin_s`, or `ITIrandMax_s` does.
+This means a newly drawn random ITI or a different Braincodec trial stimulus does not create a new block, but changing ITI settings such as `ITI_s`, `ITIrandMin_s`, or `ITIrandMax_s` does.
 
 ## Protocol Families
 
