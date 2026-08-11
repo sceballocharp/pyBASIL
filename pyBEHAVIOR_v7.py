@@ -522,8 +522,10 @@ class BehaviorAcquisitionApp(tk.Tk):
         }
 
     def get_braincodec_log_download_dir(self):
-        if self.exp_folder and os.path.isdir(self.exp_folder):
-            return self.exp_folder
+        try:
+            return self.ensure_session_folder(write_parameters=False, log_message=False)
+        except Exception as exc:
+            self.log(f"Braincodec session folder error: {exc}")
         return ""
 
     def use_braincodec_trials(self, codes, path):
@@ -1583,23 +1585,34 @@ class BehaviorAcquisitionApp(tk.Tk):
             trigger_name = self.trigger_type.get().strip() or "Trigger"
             self.plot_queue.put(("log", f"{trigger_name} crossed {threshold:g} V. Trial {self.trial_index} is type {trial_type_id} {trial_type}, sound id {sound_id}."))
 
-    def prepare_session_folder(self):
+    def build_session_folder_path(self):
         date_folder = datetime.now().strftime("%Y%m%d")
         time_folder = datetime.now().strftime("%H%M%S") + "_Data"
         user_folder = os.path.join(self.save_root.get(), self.user_name.get())
         behavior_folder = os.path.join(user_folder, "behavior_data")
         mouse_folder = os.path.join(behavior_folder, "M" + self.mouse_id.get())
-        self.exp_folder = os.path.join(
-            mouse_folder,
-            date_folder,
-            time_folder,
-        )
+        exp_folder = os.path.join(mouse_folder, date_folder, time_folder)
+        return behavior_folder, exp_folder
+
+    def ensure_session_folder(self, *, write_parameters=False, log_message=False):
+        if self.exp_folder and os.path.isdir(self.exp_folder):
+            if write_parameters:
+                self.write_parameters_dat()
+            return self.exp_folder
+        behavior_folder, exp_folder = self.build_session_folder_path()
+        self.exp_folder = exp_folder
         os.makedirs(behavior_folder, exist_ok=True)
         os.makedirs(self.exp_folder, exist_ok=True)
-        self.log(f"Session folder: {self.exp_folder}")
-        self.write_parameters_dat()
         self.trial_log_path = os.path.join(self.exp_folder, "TrialLog.csv")
         self.parameters_log_path = os.path.join(self.exp_folder, "Parameters.csv")
+        if log_message:
+            self.log(f"Session folder: {self.exp_folder}")
+        if write_parameters:
+            self.write_parameters_dat()
+        return self.exp_folder
+
+    def prepare_session_folder(self):
+        self.ensure_session_folder(write_parameters=True, log_message=True)
 
     def open_behavior_signal_file(self):
         self.close_behavior_signal_file()

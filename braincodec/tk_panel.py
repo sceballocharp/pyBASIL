@@ -537,6 +537,9 @@ class BraincodecTkPanel(ttk.Frame):
         return self.generated_blank_percent_var
 
     def _generated_trials_dir(self) -> str:
+        session_dir = self._provided_local_session_dir()
+        if session_dir:
+            return session_dir
         existing_dir = self._initial_dir(self.trials_file_var.get())
         if existing_dir and Path(existing_dir).exists():
             return existing_dir
@@ -884,6 +887,14 @@ class BraincodecTkPanel(ttk.Frame):
         return target_dir / filename
 
     def _local_log_dir(self) -> Path:
+        provided = self._provided_local_session_dir()
+        if provided:
+            return Path(provided)
+        fallback = Path(__file__).resolve().parent / "logs"
+        fallback.mkdir(exist_ok=True)
+        return fallback
+
+    def _provided_local_session_dir(self) -> str:
         if self.local_log_dir_provider is not None:
             try:
                 provided = self.local_log_dir_provider()
@@ -892,11 +903,13 @@ class BraincodecTkPanel(ttk.Frame):
                 provided = ""
             if provided:
                 path = Path(provided)
-                if path.exists():
-                    return path
-        fallback = Path(__file__).resolve().parent / "logs"
-        fallback.mkdir(exist_ok=True)
-        return fallback
+                try:
+                    path.mkdir(parents=True, exist_ok=True)
+                except OSError as exc:
+                    self.add_log_line(f"Could not create pyBEHAVIOR session folder: {exc}")
+                    return ""
+                return str(path)
+        return ""
 
     def _handle_remote_log_downloaded(self, destination: Path) -> None:
         self.add_log_line(f"Downloaded remote log to {destination}")
