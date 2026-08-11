@@ -414,6 +414,7 @@ class BraincodecTkPanel(ttk.Frame):
     def stop_remote_experiment(self) -> None:
         self.set_status("Remote stopping")
         self.add_log_line("Sending remote stop command")
+        self._start_remote_status_polling()
         self._run_remote_request("POST", "/stop", {})
 
     def check_remote_status(self) -> None:
@@ -437,6 +438,9 @@ class BraincodecTkPanel(ttk.Frame):
             self.set_status("Open page failed")
             return
         self.add_log_line(f"Opened PYNQ page: {url}")
+        self.add_log_line("In the PYNQ terminal, run:")
+        self.add_log_line("cd home/xilinx/jupyter_notebooks/sc_remote")
+        self.add_log_line("python remote_runner.py --host 0.0.0.0 --port 8000")
 
     def _pynq_home_url(self) -> str:
         remote_url = self.remote_url_var.get().strip()
@@ -957,10 +961,53 @@ class BraincodecTkPanel(ttk.Frame):
         else:
             self.clear_pattern_preview("Braincodec .npy preview not implemented yet")
 
+        self._warn_if_calibration_missing(config)
         self.add_log_line(f"{mode_label} config looks valid")
         self.set_status("Config valid")
         self.set_indicator("green")
         return True
+
+    def _warn_if_calibration_missing(self, config: dict) -> None:
+        device_id = str(config.get("device_id", "")).strip()
+        if not device_id:
+            return
+
+        calibration_name = f"irr_to_current-{device_id}.dat"
+        matches = self._find_calibration_files(calibration_name)
+        if matches:
+            self.add_log_line(f"Found calibration file: {matches[0]}")
+            return
+
+        self.add_log_line(
+            f"WARNING: Calibration file not found locally: {calibration_name}. "
+            "The PYNQ runner expects it under 'Device calibration files/'."
+        )
+
+    def _find_calibration_files(self, calibration_name: str) -> list[Path]:
+        config_path = Path(self.config_file_var.get().strip())
+        search_roots = []
+        if config_path.exists():
+            search_roots.extend([config_path.parent, config_path.parent.parent])
+
+        module_dir = Path(__file__).resolve().parent
+        search_roots.extend([module_dir, module_dir.parent])
+
+        seen = set()
+        matches = []
+        for root in search_roots:
+            root = root.resolve()
+            if root in seen or not root.exists():
+                continue
+            seen.add(root)
+            for relative_dir in (
+                Path("Device calibration files"),
+                Path("HearLight") / "BEHAVIOUR" / "Device calibration files",
+                Path("BEHAVIOUR") / "Device calibration files",
+            ):
+                candidate = root / relative_dir / calibration_name
+                if candidate.exists():
+                    matches.append(candidate)
+        return matches
 
     def update_pattern_preview(self, config: dict) -> None:
         if self.go_pattern_canvas is None or self.nogo_pattern_canvas is None:
