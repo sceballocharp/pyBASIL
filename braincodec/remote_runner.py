@@ -85,19 +85,54 @@ class BraincodecRunnerState:
     def stop(self) -> tuple[int, dict[str, Any]]:
         with self.lock:
             experiment = self.experiment
-            running = self.thread is not None and self.thread.is_alive()
+            thread = self.thread
+            running = thread is not None and thread.is_alive()
 
         if experiment is not None:
-            try:
-                if hasattr(experiment, "_stop_requested"):
-                    experiment._stop_requested = True
-                experiment.stop_()
-            except Exception as exc:
-                self.update(state="error", error=str(exc), last_message="Stop failed")
-                return 500, {"ok": False, "error": str(exc)}
+            stop_errors = self._request_experiment_stop(experiment)
+            if stop_errors:
+                self.update(
+                    state="error",
+                    error="; ".join(stop_errors),
+                    last_message="Stop failed",
+                )
+                return 500, {"ok": False, "error": "; ".join(stop_errors)}
 
-        self.update(state="stopping" if running else "idle", last_message="Stop requested")
+        if running and thread is not None:
+            thread.join(timeout=2.0)
+            running = thread.is_alive()
+
+        if running:
+            self.update(state="stopping", last_message="Stop requested; waiting for experiment thread")
+        else:
+            self.update(
+                state="stopped" if experiment is not None else "idle",
+                last_message="Experiment stopped" if experiment is not None else "No experiment running",
+                finished_at=datetime.now().isoformat(timespec="seconds") if experiment is not None else None,
+            )
         return 202, {"ok": True, "status": self.snapshot()}
+
+    def _request_experiment_stop(self, experiment) -> list[str]:
+        errors = []
+        try:
+            experiment._stop_requested = True
+        except Exception as exc:
+            errors.append(f"Could not set _stop_requested: {exc}")
+
+        on_stop_clicked = getattr(experiment, "on_stop_clicked", None)
+        if callable(on_stop_clicked):
+            try:
+                on_stop_clicked(None)
+            except Exception as exc:
+                errors.append(f"on_stop_clicked failed: {exc}")
+
+        stop_method = getattr(experiment, "stop_", None)
+        if callable(stop_method):
+            try:
+                stop_method()
+            except Exception as exc:
+                errors.append(f"stop_ failed: {exc}")
+        return errors
 
     def upload(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         files = payload.get("files", [])
@@ -132,7 +167,7 @@ class BraincodecRunnerState:
             self.update(state="running", last_message="Running experiment")
             loop.run_until_complete(exp.run())
 
-            final_state = "stopped" if self.snapshot()["state"] == "stopping" else "finished"
+            final_state = "stopped" if self.snapshot()["state"] in {"stopping", "stopped"} else "finished"
             self.update(
                 state=final_state,
                 last_message="Experiment stopped" if final_state == "stopped" else "Experiment finished",

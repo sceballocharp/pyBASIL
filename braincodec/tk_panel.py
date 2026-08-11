@@ -105,6 +105,7 @@ class BraincodecTkPanel(ttk.Frame):
         self._simulation_after_id = None
         self._remote_poll_after_id = None
         self._remote_poll_interval_ms = 1000
+        self._remote_stop_pending = False
         self._downloaded_remote_logs = set()
         self._simulation_trials = []
         self._simulation_index = 0
@@ -408,12 +409,14 @@ class BraincodecTkPanel(ttk.Frame):
             return
         self.set_status("Remote starting")
         self.add_log_line("Sending remote start command")
+        self._remote_stop_pending = False
         self._start_remote_status_polling()
         self._run_remote_request("POST", "/start", payload)
 
     def stop_remote_experiment(self) -> None:
         self.set_status("Remote stopping")
         self.add_log_line("Sending remote stop command")
+        self._remote_stop_pending = True
         self._start_remote_status_polling()
         self._run_remote_request("POST", "/stop", {})
 
@@ -811,11 +814,12 @@ class BraincodecTkPanel(ttk.Frame):
         if log_response:
             self.add_log_line(f"Remote state: {state}" + (f" | {message}" if message else ""))
 
-        if self._is_waiting_for_trigger(state, message):
+        if self._is_waiting_for_trigger(state, message) and not self._remote_stop_pending:
             self._stop_remote_status_polling()
         elif state in {"starting", "loading", "running", "stopping"}:
             self._schedule_remote_status_poll()
         else:
+            self._remote_stop_pending = False
             self._stop_remote_status_polling()
             self._download_remote_log_if_available(status)
 
