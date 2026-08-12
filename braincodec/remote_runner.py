@@ -40,6 +40,8 @@ class BraincodecRunnerState:
             "started_at": None,
             "finished_at": None,
             "log_file": None,
+            "health_scan_folder": None,
+            "health_scan_files": [],
             "error": None,
         }
 
@@ -68,6 +70,8 @@ class BraincodecRunnerState:
                     "started_at": datetime.now().isoformat(timespec="seconds"),
                     "finished_at": None,
                     "log_file": payload["log_file"],
+                    "health_scan_folder": None,
+                    "health_scan_files": [],
                     "error": None,
                 }
             )
@@ -149,6 +153,40 @@ class BraincodecRunnerState:
         self.update(last_message=f"Uploaded {len(saved)} file(s)")
         return 200, {"ok": True, "saved": saved, "status": self.snapshot()}
 
+    def start_health_scan(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        with self.lock:
+            if self.thread is not None and self.thread.is_alive():
+                return 409, {"ok": False, "error": "A remote operation is already running"}
+
+            payload = dict(payload)
+            folder_name = _safe_component(str(payload.get("folder_name") or _default_health_scan_folder(payload)))
+            payload["folder_name"] = folder_name
+            self.status.update(
+                {
+                    "state": "starting",
+                    "mode": "health_scan",
+                    "current_trial": 0,
+                    "total_trials": 100,
+                    "last_message": "Starting device health scan",
+                    "started_at": datetime.now().isoformat(timespec="seconds"),
+                    "finished_at": None,
+                    "log_file": None,
+                    "health_scan_folder": os.path.join("health_scans", folder_name),
+                    "health_scan_files": [],
+                    "error": None,
+                }
+            )
+
+            self.thread = threading.Thread(
+                target=self._run_health_scan,
+                args=(payload,),
+                name="braincodec-health-scan",
+                daemon=True,
+            )
+            self.thread.start()
+
+        return 202, {"ok": True, "status": self.snapshot()}
+
     def _run_experiment(self, payload: dict[str, Any]) -> None:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -184,6 +222,47 @@ class BraincodecRunnerState:
         finally:
             with self.lock:
                 self.experiment = None
+            asyncio.set_event_loop(None)
+            loop.close()
+
+    def _run_health_scan(self, payload: dict[str, Any]) -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            self.update(state="loading", last_message="Loading hardware and health scan driver")
+            overlay = self._get_overlay()
+            experiment_setup, device_health_scan = _import_health_scan_functions()
+            led_driver_programme = experiment_setup(overlay)
+            folder_name = _safe_component(str(payload.get("folder_name", "health_scan")))
+            ext_cables_used = bool(payload.get("ext_cables_used", True))
+
+            self.update(state="running", last_message="Running device health scan")
+            device_health_scan(led_driver_programme, folder_name, ext_cables_used=ext_cables_used)
+
+            health_scan_folder = os.path.join("health_scans", folder_name)
+            health_scan_files = [
+                os.path.join(health_scan_folder, "led_performance_map.png"),
+                os.path.join(health_scan_folder, "voltage_at_5mA.png"),
+                os.path.join(health_scan_folder, "voltage_measurements.csv"),
+            ]
+            health_scan_files = [path for path in health_scan_files if os.path.isfile(path)]
+            self.update(
+                state="finished",
+                current_trial=100,
+                last_message="Device health scan finished",
+                finished_at=datetime.now().isoformat(timespec="seconds"),
+                health_scan_folder=health_scan_folder,
+                health_scan_files=health_scan_files,
+            )
+        except Exception as exc:
+            self.update(
+                state="error",
+                error=f"{type(exc).__name__}: {exc}",
+                last_message="Device health scan failed",
+                finished_at=datetime.now().isoformat(timespec="seconds"),
+                traceback=traceback.format_exc(),
+            )
+        finally:
             asyncio.set_event_loop(None)
             loop.close()
 
@@ -277,6 +356,11 @@ class BraincodecRequestHandler(BaseHTTPRequestHandler):
             status, body = self.runner_state.stop()
             self._send_json(status, body)
             return
+        if path == "/health_scan":
+            payload = self._read_json()
+            status, body = self.runner_state.start_health_scan(payload)
+            self._send_json(status, body)
+            return
         if path == "/upload":
             payload = self._read_json()
             status, body = self.runner_state.upload(payload)
@@ -331,6 +415,17 @@ def _import_driver_classes():
     return ExpSimplePatterns, ExpBraincodecPatterns
 
 
+def _import_health_scan_functions():
+    try:
+        from led_driver.driver import device_health_scan, experiment_setup
+    except ImportError:
+        try:
+            from driver import device_health_scan, experiment_setup
+        except ImportError:
+            from .driver import device_health_scan, experiment_setup
+    return experiment_setup, device_health_scan
+
+
 def _required(payload: dict[str, Any], key: str) -> Any:
     value = payload.get(key)
     if value in (None, ""):
@@ -360,6 +455,15 @@ def _build_session_log_file(payload: dict[str, Any]) -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     os.makedirs("logs", exist_ok=True)
     return os.path.join("logs", f"{mouse}_{project}_{timestamp}.csv")
+
+
+def _default_health_scan_folder(payload: dict[str, Any]) -> str:
+    metadata = payload.get("session_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    mouse = _mouse_filename_component(str(metadata.get("mouse", "mouse")))
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{mouse}_{timestamp}"
 
 
 def _patch_driver_log_file(classes, log_file: str | None) -> None:
@@ -435,9 +539,9 @@ def _safe_download_path(path_text: str) -> str:
     normalized = str(path_text or "").replace("\\", "/").strip()
     if not normalized:
         raise ValueError("Download path is required")
-    logs_root = os.path.abspath("logs")
+    allowed_roots = [os.path.abspath("logs"), os.path.abspath("health_scans")]
     candidate = os.path.abspath(normalized)
-    if not candidate.startswith(logs_root + os.sep):
+    if not any(candidate.startswith(root + os.sep) for root in allowed_roots):
         raise ValueError(f"Unsafe download path: {path_text}")
     if not os.path.isfile(candidate):
         raise FileNotFoundError(path_text)

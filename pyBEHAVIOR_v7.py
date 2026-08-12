@@ -511,6 +511,7 @@ class BehaviorAcquisitionApp(tk.Tk):
             session_metadata_provider=self.get_braincodec_session_metadata,
             on_trials_generated=self.use_braincodec_trials,
             local_log_dir_provider=self.get_braincodec_log_download_dir,
+            local_health_scan_dir_provider=self.get_braincodec_health_scan_download_dir,
         )
         self.braincodec_panel.grid(row=0, column=0, sticky="nsew")
 
@@ -526,6 +527,19 @@ class BehaviorAcquisitionApp(tk.Tk):
             return self.ensure_session_folder(write_parameters=False, log_message=False)
         except Exception as exc:
             self.log(f"Braincodec session folder error: {exc}")
+        return ""
+
+    def get_braincodec_health_scan_download_dir(self):
+        try:
+            date_folder = datetime.now().strftime("%Y%m%d")
+            user_folder = os.path.join(self.save_root.get(), self.user_name.get())
+            behavior_folder = os.path.join(user_folder, "behavior_data")
+            mouse_folder = os.path.join(behavior_folder, "M" + self.mouse_id.get())
+            health_scan_folder = os.path.join(mouse_folder, "health_scans", date_folder)
+            os.makedirs(health_scan_folder, exist_ok=True)
+            return health_scan_folder
+        except Exception as exc:
+            self.log(f"Braincodec health scan folder error: {exc}")
         return ""
 
     def use_braincodec_trials(self, codes, path):

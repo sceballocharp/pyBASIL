@@ -71,6 +71,7 @@ class BraincodecTkPanel(ttk.Frame):
         session_metadata_provider: Optional[Callable[[], dict[str, str]]] = None,
         on_trials_generated: Optional[Callable[[list[int], str], None]] = None,
         local_log_dir_provider: Optional[Callable[[], str]] = None,
+        local_health_scan_dir_provider: Optional[Callable[[], str]] = None,
         log_lines: int = 80,
         padding: int = 10,
     ):
@@ -80,6 +81,7 @@ class BraincodecTkPanel(ttk.Frame):
         self.session_metadata_provider = session_metadata_provider
         self.on_trials_generated = on_trials_generated
         self.local_log_dir_provider = local_log_dir_provider
+        self.local_health_scan_dir_provider = local_health_scan_dir_provider
         self.log_lines = log_lines
         self._log_buffer = deque(maxlen=log_lines)
 
@@ -107,6 +109,7 @@ class BraincodecTkPanel(ttk.Frame):
         self._remote_poll_interval_ms = 1000
         self._remote_stop_pending = False
         self._downloaded_remote_logs = set()
+        self._downloaded_health_scan_files = set()
         self._simulation_trials = []
         self._simulation_index = 0
 
@@ -144,6 +147,12 @@ class BraincodecTkPanel(ttk.Frame):
         self.indicator.grid(row=0, column=6, padx=8, pady=6, sticky="w")
         self._indicator_item = self.indicator.create_oval(
             5, 5, 33, 33, fill=self.indicator_color, outline="black", width=2
+        )
+        ttk.Button(board, text="Device Health Scan", command=self.start_device_health_scan).grid(
+            row=1, column=0, columnspan=2, padx=6, pady=(0, 6), sticky="ew"
+        )
+        ttk.Label(board, text="Runs on PYNQ; copies PNG/CSV locally when complete.").grid(
+            row=1, column=2, columnspan=5, padx=4, pady=(0, 6), sticky="w"
         )
 
         files = ttk.LabelFrame(left_pane, text="Files")
@@ -357,6 +366,9 @@ class BraincodecTkPanel(ttk.Frame):
     def set_local_log_dir_provider(self, callback: Optional[Callable[[], str]]) -> None:
         self.local_log_dir_provider = callback
 
+    def set_local_health_scan_dir_provider(self, callback: Optional[Callable[[], str]]) -> None:
+        self.local_health_scan_dir_provider = callback
+
     def set_indicator(self, color: str) -> None:
         self.indicator_color = color
         self.indicator.itemconfigure(self._indicator_item, fill=color)
@@ -423,6 +435,20 @@ class BraincodecTkPanel(ttk.Frame):
     def check_remote_status(self) -> None:
         self.add_log_line("Checking remote status")
         self._run_remote_request("GET", "/status", None)
+
+    def start_device_health_scan(self) -> None:
+        payload = {
+            "folder_name": self._health_scan_remote_folder_name(),
+            "ext_cables_used": self.ext_cables_used_var.get(),
+            "session_metadata": self._session_metadata(),
+        }
+        self.set_status("Health scan starting")
+        self.set_info("Starting device health scan")
+        self.set_progress(0, maximum=100)
+        self.add_log_line("Starting device health scan on PYNQ")
+        self.add_log_line(f"Local copy folder: {self._local_health_scan_dir()}")
+        self._start_remote_status_polling()
+        self._run_remote_request("POST", "/health_scan", payload)
 
     def upload_remote_files(self) -> None:
         payload = self._build_upload_payload()
@@ -825,6 +851,7 @@ class BraincodecTkPanel(ttk.Frame):
             self._remote_stop_pending = False
             self._stop_remote_status_polling()
             self._download_remote_log_if_available(status)
+            self._download_health_scan_files_if_available(status)
 
     @staticmethod
     def _is_waiting_for_trigger(state: str, message: str) -> bool:
@@ -854,6 +881,48 @@ class BraincodecTkPanel(ttk.Frame):
         self._downloaded_remote_logs.add(log_file)
         self.add_log_line(f"Downloading remote Braincodec log: {log_file}")
         self._download_remote_log(log_file)
+
+    def _download_health_scan_files_if_available(self, status: dict) -> None:
+        files = status.get("health_scan_files") or []
+        if not isinstance(files, list):
+            return
+        for remote_file in files:
+            remote_text = str(remote_file).strip()
+            if not remote_text or remote_text in self._downloaded_health_scan_files:
+                continue
+            self._downloaded_health_scan_files.add(remote_text)
+            self.add_log_line(f"Downloading health scan file: {remote_text}")
+            self._download_health_scan_file(remote_text)
+
+    def _download_health_scan_file(self, remote_file: str) -> None:
+        base_url = self.remote_url_var.get().strip().rstrip("/")
+        if not base_url:
+            self.add_log_line("Cannot download health scan: no PYNQ runner URL")
+            return
+        thread = threading.Thread(
+            target=self._download_health_scan_worker,
+            args=(base_url, remote_file),
+            daemon=True,
+        )
+        thread.start()
+
+    def _download_health_scan_worker(self, base_url: str, remote_file: str) -> None:
+        try:
+            query_path = urllib_parse.quote(remote_file.replace("\\", "/"), safe="/")
+            url = f"{base_url}/download?path={query_path}"
+            with urllib_request.urlopen(url, timeout=20) as response:
+                data = response.read()
+            destination = self._local_health_scan_destination(remote_file)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(data)
+            self.after(0, lambda destination=destination: self._handle_health_scan_downloaded(destination))
+        except Exception as exc:
+            message = str(exc)
+            self.after(0, lambda message=message: self.add_log_line(f"Health scan download failed: {message}"))
+
+    def _local_health_scan_destination(self, remote_file: str) -> Path:
+        filename = Path(remote_file.replace("\\", "/")).name or "health_scan_file"
+        return self._local_health_scan_dir() / filename
 
     def _download_remote_log(self, log_file: str) -> None:
         base_url = self.remote_url_var.get().strip().rstrip("/")
@@ -894,6 +963,31 @@ class BraincodecTkPanel(ttk.Frame):
         fallback.mkdir(exist_ok=True)
         return fallback
 
+    def _local_health_scan_dir(self) -> Path:
+        provided = self._provided_local_health_scan_dir()
+        if provided:
+            return Path(provided)
+        fallback = Path(__file__).resolve().parent / "health_scans" / datetime.now().strftime("%Y%m%d")
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+    def _provided_local_health_scan_dir(self) -> str:
+        if self.local_health_scan_dir_provider is not None:
+            try:
+                provided = self.local_health_scan_dir_provider()
+            except Exception as exc:
+                self.add_log_line(f"Could not read health scan folder: {exc}")
+                provided = ""
+            if provided:
+                path = Path(provided)
+                try:
+                    path.mkdir(parents=True, exist_ok=True)
+                except OSError as exc:
+                    self.add_log_line(f"Could not create health scan folder: {exc}")
+                    return ""
+                return str(path)
+        return ""
+
     def _provided_local_session_dir(self) -> str:
         if self.local_log_dir_provider is not None:
             try:
@@ -914,6 +1008,16 @@ class BraincodecTkPanel(ttk.Frame):
     def _handle_remote_log_downloaded(self, destination: Path) -> None:
         self.add_log_line(f"Downloaded remote log to {destination}")
         self.set_info(f"Braincodec log saved: {destination.name}")
+
+    def _handle_health_scan_downloaded(self, destination: Path) -> None:
+        self.add_log_line(f"Downloaded health scan file to {destination}")
+        self.set_info(f"Health scan saved: {destination.parent}")
+
+    def _health_scan_remote_folder_name(self) -> str:
+        metadata = self._session_metadata()
+        mouse = self._mouse_filename_component(metadata.get("mouse", "mouse"))
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"{mouse}_{timestamp}"
 
     def detect_mode_from_config(self) -> Optional[str]:
         config = self._read_config()
